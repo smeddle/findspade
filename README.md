@@ -50,3 +50,4 @@ fixture with:
 ```sh
 python tools/trim_fixture.py samples/search/foo.html tests/fixtures/search/foo.html --max-results 5
 ```
+🅮 AI-coded. Do with it what thou wilt.
