@@ -40,3 +40,13 @@ ruff check . && ruff format --check .
 ```
 
 Scraped data (`data/`) and raw saved pages (`samples/`) are git-ignored.
+
+### Test fixtures
+
+`tests/fixtures/` holds trimmed, anonymised copies of saved eBay pages. Raw pages contain
+the logged-in user's name, username and postcode, so never commit them directly; make a
+fixture with:
+
+```sh
+python tools/trim_fixture.py samples/search/foo.html tests/fixtures/search/foo.html --max-results 5
+```
