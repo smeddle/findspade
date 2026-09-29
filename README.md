@@ -49,5 +49,12 @@ fixture with:
 
 ```sh
 python tools/trim_fixture.py samples/search/foo.html tests/fixtures/search/foo.html --max-results 5
+python tools/trim_fixture.py samples/items/123/item.html tests/fixtures/items/123/item.html
+python tools/trim_fixture.py samples/items/123/description.html \
+    tests/fixtures/items/123/description.html --redact <seller username>
 ```
+
+Seller usernames are found and replaced automatically on search and item pages; a
+description page doesn't show the username, so pass it with `--redact`. Check the result
+for anything personal before committing.
 🅮 AI-coded. Do with it what thou wilt.
