@@ -1,0 +1,5 @@
+antiquity-p1.html: https://www.ebay.com/sch/i.html?_nkw=%22Antiquity%22&_in_kw=4&_sacat=0&LH_Sold=1&LH_ItemCondition=3000&_salic=3&LH_LocatedIn=1
+antiquity-last.html: https://www.ebay.com/sch/i.html?_nkw=%22Antiquity%22&_in_kw=4&_sacat=0&LH_Sold=1&LH_ItemCondition=3000&_salic=3&LH_LocatedIn=1&_dcat=0&_pgn=2
+metal-detecting-find-p2.html: https://www.ebay.com/sch/i.html?_nkw=%22metal+detecting+find%22&_sacat=0&_from=R40&LH_TitleDesc=0&LH_Sold=1&_dcat=0&_pgn=2
+logged-out.html: https://signin.ebay.com/ws/eBayISAPI.dll?SignIn&siteid=0&ru=https%3A%2F%2Fwww.ebay.com%2Fsch%2Fi.html%3F_nkw%3DAntiquity%26LH_Sold%3D1%26LH_ItemCondition%3D3000%26_salic%3D3%26LH_LocatedIn%3D1&sgfl=srch
+zero-results.html: https://www.ebay.com/sch/i.html?_nkw=%22jamberwacky+heehaw%22&_sacat=0&_from=R40&_trksid=p2334524.m570.l1313&LH_TitleDesc=0&_odkw=%22metal+detecting+find%22&_osacat=0&LH_Sold=1&_dcat=0
