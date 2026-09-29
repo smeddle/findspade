@@ -27,7 +27,8 @@ class SearchResult:
     subtitle: str | None  # often the condition, e.g. "Pre-Owned", but sellers can set it
     sold_date: date | None
     price: str  # e.g. "$106.04"
-    shipping: str | None  # e.g. "+$6.61 delivery in 2-4 days", "Free International Shipping"
+    shipping: str | None  # e.g. "+$24.63 shipping estimate", "Shipping not specified"
+    import_fees: str | None  # e.g. "Import fees paid at checkout"
     location: str | None  # e.g. "United Kingdom"
     seller: str | None
 
@@ -69,11 +70,13 @@ def _total_results(soup: BeautifulSoup) -> int | None:
 def _parse_card(card: Tag) -> SearchResult:
     item_id = card["data-listingid"]
 
-    shipping = location = None
+    shipping = import_fees = location = None
     for row in card.select(".su-card-container__attributes__primary .s-card__attribute-row"):
         text = row.get_text(" ", strip=True)
         if text.startswith("Located in "):
             location = text.removeprefix("Located in ")
+        elif text.startswith("Import fees"):
+            import_fees = text
         elif re.search(r"delivery|shipping", text, re.IGNORECASE):
             shipping = text
 
@@ -88,6 +91,7 @@ def _parse_card(card: Tag) -> SearchResult:
         sold_date=_sold_date(_text(card.select_one(".s-card__caption"))),
         price=_text(card.select_one(".s-card__price")),
         shipping=shipping,
+        import_fees=import_fees,
         location=location,
         seller=_text(seller_name),
     )

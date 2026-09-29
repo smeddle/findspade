@@ -30,6 +30,7 @@ def test_first_page_reads_every_field_of_a_result():
         sold_date=date(2026, 9, 27),
         price="$106.04",
         shipping="+$6.61 delivery in 2-4 days",
+        import_fees=None,
         location="United Kingdom",
         seller="seller-1",
     )
@@ -59,6 +60,20 @@ def test_middle_page_without_count_heading_or_subtitle():
     coin = next(r for r in page.results if r.item_id == "257745509133")
     assert coin.subtitle is None
     assert coin.sold_date == date(2026, 9, 21)
+
+
+def test_us_delivery_location_shows_shipping_estimates_and_import_fees():
+    page = parse_search_page(
+        (FIXTURES.parent / "us" / "search" / "antiquity-p1.html").read_text(encoding="utf-8")
+    )
+    by_id = {r.item_id: r for r in page.results}
+
+    assert by_id["327366761616"].shipping == "Shipping not specified"
+    assert by_id["307111434811"].shipping == "+$23.38 shipping estimate"
+    assert by_id["307111434811"].import_fees == "Import fees paid at checkout"
+    # "delivery" in the import fees row must not overwrite the shipping cost.
+    assert by_id["336404084470"].shipping == "+$4.90 delivery"
+    assert by_id["336404084470"].import_fees == "Import fees due prior to delivery"
 
 
 def test_zero_results_page_is_empty_not_an_error():

@@ -27,6 +27,7 @@ def test_auction_item_reads_every_field():
     assert item.condition == "Used"
     assert item.location == "Bromsgrove, United Kingdom"
     assert item.shipping == "GBP 2.27 (approx US $3.01) Standard Tracked Delivery"
+    assert item.import_charges is None
     assert item.delivery == "Estimated between Fri, Oct 2 and Thu, Oct 8 to POSTCODE"
     assert item.category == [
         "Collectibles & Art",
@@ -66,6 +67,18 @@ def test_item_without_breadcrumb_condition_or_shipping_row():
     assert brooch.shipping is None
     assert brooch.delivery == "Varies"
     assert brooch.location == "Pontefract, United Kingdom"
+
+
+def test_us_delivery_location_shows_international_shipping_and_import_charges():
+    html = (FIXTURES / "us" / "items" / "800639427458" / "item.html").read_text(encoding="utf-8")
+    item = parse_item_page(html)
+
+    assert item.shipping == (
+        "GBP 70.24 (approx US $93.10) International Priority Shipping"
+        " to United States via eBay's Global Shipping Program"
+    )
+    assert item.import_charges == "Est. GBP 310.15 Amount confirmed at checkout"
+    assert item.delivery == "Estimated between Tue, Oct 13 and Tue, Oct 20 to 20002"
 
 
 def test_description_keeps_line_breaks():

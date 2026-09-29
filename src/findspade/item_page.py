@@ -3,8 +3,9 @@
 For sold items the page shows the original listing, so there is no further page to fetch
 apart from the description, whose URL is given by description_url.
 
-Shipping, delivery and pickup are shown for the logged-in user's delivery location, not
-for the actual buyer's. Values are kept as the page shows them.
+Shipping, import charges and delivery are shown for the logged-in user's delivery
+location, not the actual buyer's, so scrape with eBay's delivery location set to a US ZIP.
+Values are kept as the page shows them.
 """
 
 import re
@@ -26,8 +27,9 @@ class ItemPage:
     best_offer_accepted: bool  # if so, the real sale price is lower than `price`
     condition: str | None  # e.g. "Pre-owned - Fair"
     location: str | None  # e.g. "Pontefract, United Kingdom"
-    shipping: str | None  # e.g. "GBP 1.60 (approx US $2.12) Royal Mail 2nd Class"
-    delivery: str | None  # e.g. "Estimated between Fri, Oct 2 and Thu, Oct 8 to SE1 1AA"
+    shipping: str | None  # e.g. "GBP 7.50 (approx US $9.94) Royal Mail International Standard"
+    import_charges: str | None  # e.g. "Est. GBP 310.15 Amount confirmed at checkout"
+    delivery: str | None  # e.g. "Estimated between Tue, Oct 13 and Tue, Oct 20 to 20002"
     category: list[str] = field(default_factory=list)  # breadcrumb, broadest first
     category_id: str | None = None
     item_specifics: dict[str, str] = field(default_factory=dict)
@@ -60,6 +62,7 @@ def parse_item_page(html: str) -> ItemPage:
         condition=specifics["Condition"].split(":")[0] if "Condition" in specifics else None,
         location=_location(soup),
         shipping=_first_line(soup.select_one(".ux-labels-values--shipping")),
+        import_charges=_first_line(soup.select_one(".ux-labels-values--importCharges")),
         delivery=_first_line(soup.select_one(".ux-labels-values--deliverto")),
         category=_breadcrumb(soup),
         category_id=category_id.group(1) if category_id else None,
