@@ -19,6 +19,18 @@ class NotLoggedInError(UnexpectedPageError):
     """eBay showed its sign-in page instead of the results."""
 
 
+class EbayErrorPage(UnexpectedPageError):
+    """eBay's own "Something went wrong on our end" page; reloading usually works."""
+
+
+def check_for_ebay_pages(soup: BeautifulSoup) -> None:
+    """Raise if eBay showed its sign-in page or its error page instead of the content."""
+    if soup.find("form", id="signin-form"):
+        raise NotLoggedInError("Got the eBay sign-in page; is the browser logged in?")
+    if soup.find(string=re.compile("Something went wrong on our end")):
+        raise EbayErrorPage("Got eBay's 'Something went wrong on our end' page")
+
+
 @dataclass
 class SearchResult:
     item_id: str
@@ -43,9 +55,7 @@ class SearchPage:
 
 def parse_search_page(html: str) -> SearchPage:
     soup = BeautifulSoup(html, "lxml")
-
-    if soup.find("form", id="signin-form"):
-        raise NotLoggedInError("Got the eBay sign-in page; is the browser logged in?")
+    check_for_ebay_pages(soup)
 
     results_list = soup.select_one("ul.srp-results")
     if results_list is None and not soup.select_one(".srp-save-null-search"):

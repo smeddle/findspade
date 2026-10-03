@@ -14,11 +14,12 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from findspade.item_page import parse_item_page
-from findspade.search_page import UnexpectedPageError, parse_search_page
+from findspade.search_page import EbayErrorPage, UnexpectedPageError, parse_search_page
 from findspade.snapshot import Snapshot
 from findspade.terms import search_url
 
 MAX_PAGES_PER_TERM = 50  # a safety limit; eBay shows at most about 10,000 results
+ERROR_PAGE_RETRIES = 3  # reloads after eBay's "Something went wrong" page before giving up
 
 
 class Browser(Protocol):
@@ -110,15 +111,28 @@ class _Fetcher:
             self.snapshot.save_item_page(item_id, "description", item.description_url, description)
 
     def _get(self, url: str, parse: Callable):
-        """Load and parse a page, giving the user one chance to clear a block."""
-        self.pause()
-        html = self.browser.get(url)
-        try:
-            return html, parse(html)
-        except UnexpectedPageError as error:
-            self.on_blocked(url, error)
-        html = self.browser.get(url)
-        return html, parse(html)  # a second failure stops the run
+        """Load and parse a page, pausing before every attempt.
+
+        eBay's error page is reloaded up to ERROR_PAGE_RETRIES times. Any other unexpected
+        page (e.g. verification) is handed to the user once; a second one stops the run.
+        """
+        retries = 0
+        asked_user = False
+        while True:
+            self.pause()
+            html = self.browser.get(url)
+            try:
+                return html, parse(html)
+            except EbayErrorPage:
+                if retries == ERROR_PAGE_RETRIES:
+                    raise
+                retries += 1
+                self.log(f"eBay error page; reloading ({retries}/{ERROR_PAGE_RETRIES})")
+            except UnexpectedPageError as error:
+                if asked_user:
+                    raise
+                asked_user = True
+                self.on_blocked(url, error)
 
 
 def _check_us_location(ship_to: str | None) -> None:

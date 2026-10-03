@@ -3,14 +3,18 @@ from pathlib import Path
 
 import pytest
 
-from findspade.fetch import HumanPace, WrongLocationError, take_snapshot
+from findspade.fetch import ERROR_PAGE_RETRIES, HumanPace, WrongLocationError, take_snapshot
 from findspade.records import build_records
-from findspade.search_page import UnexpectedPageError
+from findspade.search_page import EbayErrorPage, UnexpectedPageError
 from findspade.snapshot import Snapshot
 from findspade.terms import search_url
 
 FIXTURES = Path(__file__).parent / "fixtures"
 VERIFY_PAGE = "<html><body><h1>Please verify you are a human</h1></body></html>"
+ERROR_PAGE = (
+    "<html><body><h1>SORRY</h1><p>Something went wrong on our end</p>"
+    "<p>0.ad24c317.1791046358.2a76ec7b</p><p>Please go back and try again</p></body></html>"
+)
 
 
 def fixture(path: str, ship_to: str = "20002") -> str:
@@ -34,9 +38,13 @@ class FakeBrowser:
         self.description_html = fixture("items/257745509133/description.html")
         self.requested: list[str] = []
         self.failures: dict[str, int] = {}  # url -> times to return a verification page first
+        self.errors: dict[str, int] = {}  # url -> times to return eBay's error page first
 
     def get(self, url: str) -> str:
         self.requested.append(url)
+        if self.errors.get(url, 0) > 0:
+            self.errors[url] -= 1
+            return ERROR_PAGE
         if self.failures.get(url, 0) > 0:
             self.failures[url] -= 1
             return VERIFY_PAGE
@@ -108,6 +116,31 @@ def test_second_verification_page_stops_the_run_without_saving_it(tmp_path):
         run(snapshot, browser)
 
     assert snapshot.item_page("307111434811", "item") is None
+
+
+def test_ebay_error_page_is_reloaded_after_the_usual_pause(tmp_path):
+    snapshot = Snapshot(tmp_path)
+    browser = FakeBrowser()
+    url = search_url("Antiquity", 1)
+    browser.errors[url] = 2
+    blocked = []
+
+    pauses = run(snapshot, browser, on_blocked=lambda url, error: blocked.append(url))
+
+    assert browser.requested.count(url) == 3
+    assert pauses == len(browser.requested)  # every reload waited like any other page
+    assert blocked == []  # no need to involve the user
+    assert len(snapshot.searches()[0][1]) == 2
+
+
+def test_persistent_ebay_error_page_stops_the_run(tmp_path):
+    browser = FakeBrowser()
+    browser.errors[search_url("Antiquity", 1)] = 10
+
+    with pytest.raises(EbayErrorPage):
+        run(Snapshot(tmp_path), browser)
+
+    assert browser.requested.count(search_url("Antiquity", 1)) == 1 + ERROR_PAGE_RETRIES
 
 
 def test_refuses_to_run_unless_delivery_location_is_a_us_zip(tmp_path):

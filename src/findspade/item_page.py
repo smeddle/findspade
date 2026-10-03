@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 from bs4 import BeautifulSoup, Tag
 
-from findspade.search_page import NotLoggedInError, UnexpectedPageError
+from findspade.search_page import UnexpectedPageError, check_for_ebay_pages
 
 
 @dataclass
@@ -38,9 +38,8 @@ class ItemPage:
 
 def parse_item_page(html: str) -> ItemPage:
     soup = BeautifulSoup(html, "lxml")
+    check_for_ebay_pages(soup)
 
-    if soup.find("form", id="signin-form"):
-        raise NotLoggedInError("Got the eBay sign-in page; is the browser logged in?")
     title = soup.select_one("h1.x-item-title__mainTitle")
     item_id = soup.select_one(".ux-layout-section--itemId .ux-textspans--BOLD")
     if title is None or item_id is None:
