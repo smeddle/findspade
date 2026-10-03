@@ -1,11 +1,16 @@
 """Command-line entry point: `findspade <command> ...`."""
 
 import argparse
+from datetime import date
 from pathlib import Path
 
+from findspade.browser import PlaywrightBrowser, login
+from findspade.fetch import HumanPace, take_snapshot
 from findspade.records import RECORDS_FILE, write_records
 from findspade.snapshot import Snapshot
 from findspade.terms import parse_terms_arg, read_terms_file, search_url
+
+PROFILE_DIR = Path("data/browser-profile")  # holds the eBay login cookies; git ignores data/
 
 
 def _add_terms_arguments(parser: argparse.ArgumentParser) -> None:
@@ -36,6 +41,19 @@ def cmd_records(args: argparse.Namespace) -> None:
     print(f"Wrote {count} records to {args.snapshot / RECORDS_FILE}")
 
 
+def cmd_login(args: argparse.Namespace) -> None:
+    login(args.profile)
+
+
+def cmd_snapshot(args: argparse.Namespace) -> None:
+    snapshot = Snapshot(args.data_dir / "snapshots" / args.date)
+    pace = HumanPace(min_delay=args.min_delay, max_delay=args.max_delay)
+    with PlaywrightBrowser(args.profile, headless=args.headless) as browser:
+        take_snapshot(_terms_from_args(args), snapshot, browser, pace)
+    count = write_records(snapshot)
+    print(f"Wrote {count} records to {snapshot.root / RECORDS_FILE}")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="findspade")
     commands = parser.add_subparsers(required=True)
@@ -43,6 +61,27 @@ def main(argv: list[str] | None = None) -> None:
     urls = commands.add_parser("urls", help="print the first-page search URL for each term")
     _add_terms_arguments(urls)
     urls.set_defaults(func=cmd_urls)
+
+    profile_help = "browser profile directory holding the eBay login"
+    login = commands.add_parser("login", help="sign in to eBay and set the delivery location")
+    login.add_argument("--profile", type=Path, default=PROFILE_DIR, help=profile_help)
+    login.set_defaults(func=cmd_login)
+
+    snapshot = commands.add_parser("snapshot", help="fetch a snapshot and write its records")
+    _add_terms_arguments(snapshot)
+    snapshot.add_argument(
+        "--date", default=date.today().isoformat(), help="snapshot name (default: today)"
+    )
+    snapshot.add_argument("--data-dir", type=Path, default=Path("data"))
+    snapshot.add_argument("--profile", type=Path, default=PROFILE_DIR, help=profile_help)
+    snapshot.add_argument(
+        "--min-delay", type=float, default=4.0, help="seconds between pages, at least"
+    )
+    snapshot.add_argument(
+        "--max-delay", type=float, default=12.0, help="seconds between pages, at most"
+    )
+    snapshot.add_argument("--headless", action="store_true", help="hide the browser window")
+    snapshot.set_defaults(func=cmd_snapshot)
 
     records = commands.add_parser("records", help="parse a snapshot into records.jsonl")
     records.add_argument(

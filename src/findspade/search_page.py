@@ -38,6 +38,7 @@ class SearchPage:
     total_results: int | None  # eBay's own (approximate) count, when shown
     has_next_page: bool
     results: list[SearchResult]
+    ship_to: str | None = None  # the logged-in user's delivery location, e.g. "20002"
 
 
 def parse_search_page(html: str) -> SearchPage:
@@ -58,6 +59,7 @@ def parse_search_page(html: str) -> SearchPage:
         total_results=_total_results(soup),
         has_next_page=soup.select_one("a.pagination__next[href]") is not None,
         results=[_parse_card(card) for card in cards],
+        ship_to=_text(soup.select_one(".shipping-entry .zipcode-text")),
     )
 
 

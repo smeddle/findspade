@@ -11,6 +11,7 @@ Requires Python 3.11+.
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
+playwright install chromium
 ```
 
 Dependencies are declared in `pyproject.toml`: runtime ones under `dependencies`,
@@ -31,6 +32,31 @@ double quotes does not split the term.
 
 `urls` prints the eBay sold-items search URL for each term (UK sellers, available to the US,
 used condition, 240 results per page).
+
+### Taking a snapshot
+
+First, once (and again whenever eBay logs you out):
+
+```sh
+findspade login
+```
+
+This opens a browser window. Sign in to eBay, set the delivery location to a US ZIP code
+(e.g. 10001) via "Shipping to" on any search page, then close the window. The login is
+kept in `data/browser-profile/`, which holds your eBay cookies and is git-ignored.
+
+Then:
+
+```sh
+findspade snapshot --terms-file terms.txt
+```
+
+This fetches every results page for each term, then each item's page and description,
+waiting 4–12 seconds between pages (`--min-delay`, `--max-delay`) with an occasional
+longer break, and finally writes `records.jsonl`. It refuses to run if the delivery
+location isn't a US ZIP. If eBay shows a sign-in or verification page, it pauses so you
+can deal with it in the browser window. If interrupted, run the same command again: items
+already saved are skipped.
 
 ### Snapshots and records
 
