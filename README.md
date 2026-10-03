@@ -32,6 +32,21 @@ double quotes does not split the term.
 `urls` prints the eBay sold-items search URL for each term (UK sellers, available to the US,
 used condition, 240 results per page).
 
+### Snapshots and records
+
+A snapshot is a directory of raw pages saved exactly as fetched, one per date, e.g.
+`data/snapshots/2026-10-03/` (layout described in `src/findspade/snapshot.py`). Turn one
+into `records.jsonl`, one JSON record per sold item, with:
+
+```sh
+findspade records data/snapshots/2026-10-03
+```
+
+Each record combines the item's search result, item page and description: title, sold
+date, prices, condition, seller, location, shipping, category, item specifics, the full
+description text, any PAS / export licence / provenance mentions, and the search terms
+that found it. Records can be rebuilt from the raw pages at any time.
+
 ## Development
 
 ```sh
