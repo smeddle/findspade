@@ -3,7 +3,9 @@ from pathlib import Path
 
 import pytest
 
+from findspade.item_page import parse_item_page
 from findspade.search_page import (
+    EbayErrorPage,
     NotLoggedInError,
     SearchResult,
     UnexpectedPageError,
@@ -87,6 +89,14 @@ def test_zero_results_page_is_empty_not_an_error():
 def test_sign_in_page_raises_not_logged_in():
     with pytest.raises(NotLoggedInError):
         parse_fixture("logged-out.html")
+
+
+def test_ebay_error_page_raises_its_own_error():
+    html = "<html><body><h1>SORRY</h1><p>Something went wrong on our end</p></body></html>"
+    with pytest.raises(EbayErrorPage):
+        parse_search_page(html)
+    with pytest.raises(EbayErrorPage):
+        parse_item_page(html)
 
 
 def test_unrecognised_page_raises():

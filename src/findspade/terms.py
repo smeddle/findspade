@@ -4,12 +4,14 @@ import re
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-# Sold items, located in the UK, available to the US, condition used, 240 results per page.
-# Only _nkw (the keywords) and _pgn (the page number) are changed per request.
+US_ZIP = "08075"  # delivery location for shipping estimates (_stpos): Burlington County, NJ
+
+# Sold items, located in the UK, available to the US, condition used, 240 results per page,
+# shipping to US_ZIP. Only _nkw (the keywords) and _pgn (the page number) change per request.
 SEARCH_URL_TEMPLATE = (
     "https://www.ebay.com/sch/i.html"
     "?_nkw=&_in_kw=4&_sacat=0&LH_Sold=1&LH_ItemCondition=3000&_salic=3&LH_LocatedIn=1"
-    "&_ipg=240"
+    f"&_ipg=240&_stpos={US_ZIP}"
 )
 
 

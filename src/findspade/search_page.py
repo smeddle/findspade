@@ -19,6 +19,18 @@ class NotLoggedInError(UnexpectedPageError):
     """eBay showed its sign-in page instead of the results."""
 
 
+class EbayErrorPage(UnexpectedPageError):
+    """eBay's own "Something went wrong on our end" page; reloading usually works."""
+
+
+def check_for_ebay_pages(soup: BeautifulSoup) -> None:
+    """Raise if eBay showed its sign-in page or its error page instead of the content."""
+    if soup.find("form", id="signin-form"):
+        raise NotLoggedInError("Got the eBay sign-in page; is the browser logged in?")
+    if soup.find(string=re.compile("Something went wrong on our end")):
+        raise EbayErrorPage("Got eBay's 'Something went wrong on our end' page")
+
+
 @dataclass
 class SearchResult:
     item_id: str
@@ -38,13 +50,12 @@ class SearchPage:
     total_results: int | None  # eBay's own (approximate) count, when shown
     has_next_page: bool
     results: list[SearchResult]
+    ship_to: str | None = None  # the logged-in user's delivery location, e.g. "20002"
 
 
 def parse_search_page(html: str) -> SearchPage:
     soup = BeautifulSoup(html, "lxml")
-
-    if soup.find("form", id="signin-form"):
-        raise NotLoggedInError("Got the eBay sign-in page; is the browser logged in?")
+    check_for_ebay_pages(soup)
 
     results_list = soup.select_one("ul.srp-results")
     if results_list is None and not soup.select_one(".srp-save-null-search"):
@@ -58,6 +69,7 @@ def parse_search_page(html: str) -> SearchPage:
         total_results=_total_results(soup),
         has_next_page=soup.select_one("a.pagination__next[href]") is not None,
         results=[_parse_card(card) for card in cards],
+        ship_to=_text(soup.select_one(".shipping-entry .zipcode-text")),
     )
 
 
