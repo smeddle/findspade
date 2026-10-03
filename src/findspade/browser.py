@@ -41,8 +41,8 @@ def login(profile_dir: Path) -> None:
     with PlaywrightBrowser(profile_dir) as browser:
         browser.page.goto(SIGN_IN_URL)
         print(
-            "In the browser window: sign in to eBay, then set the delivery location to a "
-            "US ZIP code (e.g. 10001) via 'Shipping to' on any search page.\n"
+            "In the browser window: sign in to eBay. If item pages later show delivery to a "
+            "non-US address, also set 'Shipping to' a US ZIP code on any search page.\n"
             "Close the window when done."
         )
         browser.page.wait_for_event("close", timeout=0)

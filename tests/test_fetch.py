@@ -23,15 +23,15 @@ def fixture(path: str, ship_to: str = "20002") -> str:
 
 
 class FakeBrowser:
-    """Serves the "Antiquity" search fixtures; every item gets the same item page."""
+    """Serves the "Antiquity" search fixtures; every item gets the same (US) item page."""
 
     def __init__(self, ship_to: str = "20002"):
         self.pages = {
             search_url("Antiquity", 1): fixture("search/antiquity-p1.html", ship_to),
             search_url("Antiquity", 2): fixture("search/antiquity-last.html", ship_to),
         }
-        self.item_html = fixture("items/398366490754/item.html")
-        self.description_html = fixture("items/398366490754/description.html")
+        self.item_html = fixture("us/items/257745509133/item.html")
+        self.description_html = fixture("items/257745509133/description.html")
         self.requested: list[str] = []
         self.failures: dict[str, int] = {}  # url -> times to return a verification page first
 
@@ -117,6 +117,17 @@ def test_refuses_to_run_unless_delivery_location_is_a_us_zip(tmp_path):
         run(snapshot, FakeBrowser(ship_to="SE120HR"))
 
     assert snapshot.searches() == []
+
+
+def test_refuses_to_save_item_pages_showing_delivery_outside_the_us(tmp_path):
+    snapshot = Snapshot(tmp_path)
+    browser = FakeBrowser()
+    browser.item_html = fixture("items/398366490754/item.html")  # delivery "to POSTCODE"
+
+    with pytest.raises(WrongLocationError, match="POSTCODE"):
+        run(snapshot, browser)
+
+    assert snapshot.item_page("307111434811", "item") is None
 
 
 def test_terms_differing_only_in_case_are_searched_once(tmp_path):

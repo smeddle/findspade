@@ -101,6 +101,7 @@ class _Fetcher:
     def fetch_item(self, item_id: str) -> None:
         url = f"https://www.ebay.com/itm/{item_id}"
         html, item = self._get(url, parse_item_page)
+        _check_us_location(_delivery_destination(item.delivery))
         self.snapshot.save_item_page(item_id, "item", url, html)
         if item.description_url:
             # Plain seller HTML, served by eBay without a login, so there is nothing to check.
@@ -124,8 +125,14 @@ def _check_us_location(ship_to: str | None) -> None:
     if ship_to is not None and not re.fullmatch(r"\d{5}", ship_to):
         raise WrongLocationError(
             f"eBay's delivery location is {ship_to!r}, not a US ZIP code. "
-            "Run `findspade login` and set it to a US ZIP, e.g. 10001."
+            "Run `findspade login` and set it to a US ZIP via 'Shipping to' on a search page."
         )
+
+
+def _delivery_destination(delivery: str | None) -> str | None:
+    """'Estimated between Tue, Oct 13 and Tue, Oct 20 to 08075' -> '08075'"""
+    match = delivery and re.search(r" to (.+)$", delivery)
+    return match.group(1) if match else None
 
 
 def _unique_ignoring_case(terms: list[str], log: Callable[[str], None]) -> list[str]:

@@ -41,9 +41,13 @@ First, once (and again whenever eBay logs you out):
 findspade login
 ```
 
-This opens a browser window. Sign in to eBay, set the delivery location to a US ZIP code
-(e.g. 10001) via "Shipping to" on any search page, then close the window. The login is
-kept in `data/browser-profile/`, which holds your eBay cookies and is git-ignored.
+This opens a browser window: sign in to eBay, then close it. The login is kept in
+`data/browser-profile/`, which holds your eBay cookies and is git-ignored.
+
+Shipping figures depend on the delivery location. Search URLs set it to a US ZIP code
+(`_stpos=08075`, in `terms.py`), and the snapshot stops if a search or item page shows
+delivery to anywhere else; if that happens, run `findspade login` again and set "Shipping
+to" a US ZIP on any search page.
 
 Then:
 
@@ -53,10 +57,9 @@ findspade snapshot --terms-file terms.txt
 
 This fetches every results page for each term, then each item's page and description,
 waiting 4–12 seconds between pages (`--min-delay`, `--max-delay`) with an occasional
-longer break, and finally writes `records.jsonl`. It refuses to run if the delivery
-location isn't a US ZIP. If eBay shows a sign-in or verification page, it pauses so you
-can deal with it in the browser window. If interrupted, run the same command again: items
-already saved are skipped.
+longer break, and finally writes `records.jsonl`. If eBay shows a sign-in or verification
+page, it pauses so you can deal with it in the browser window. If interrupted, run the same
+command again: items already saved are skipped.
 
 ### Snapshots and records
 
