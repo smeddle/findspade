@@ -143,6 +143,24 @@ def test_persistent_ebay_error_page_stops_the_run(tmp_path):
     assert browser.requested.count(search_url("Antiquity", 1)) == 1 + ERROR_PAGE_RETRIES
 
 
+def test_catalogue_product_page_is_saved_without_a_description_or_asking_the_user(tmp_path):
+    snapshot = Snapshot(tmp_path)
+    browser = FakeBrowser()
+    url = "https://www.ebay.com/itm/307111434811"
+    browser.pages[url] = fixture("items/358862393122/item.html")
+    blocked = []
+
+    run(snapshot, browser, on_blocked=lambda url, error: blocked.append(url))
+
+    assert blocked == []
+    assert snapshot.item_page("307111434811", "item") == browser.pages[url]
+    assert snapshot.item_page("307111434811", "description") is None
+
+    rerun = FakeBrowser()
+    run(snapshot, rerun)
+    assert url not in rerun.requested
+
+
 def test_refuses_to_run_unless_delivery_location_is_a_us_zip(tmp_path):
     snapshot = Snapshot(tmp_path)
 

@@ -11,7 +11,7 @@ import sys
 from dataclasses import asdict
 
 from findspade.details import find_details
-from findspade.item_page import ItemPage, parse_description, parse_item_page
+from findspade.item_page import ItemPage, ListingUnavailable, parse_description, parse_item_page
 from findspade.search_page import SearchResult, UnexpectedPageError, parse_search_page
 from findspade.snapshot import Snapshot
 
@@ -79,6 +79,8 @@ def _item_page(snapshot: Snapshot, item_id: str) -> ItemPage | None:
         return None
     try:
         return parse_item_page(html)
+    except ListingUnavailable:
+        return None  # eBay showed a catalogue product page; the search result is all there is
     except UnexpectedPageError as e:
         print(f"Warning: item {item_id}: {e}; using its search result only", file=sys.stderr)
         return None

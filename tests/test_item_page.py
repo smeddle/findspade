@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from findspade.item_page import parse_description, parse_item_page
+from findspade.item_page import ListingUnavailable, parse_description, parse_item_page
 from findspade.search_page import NotLoggedInError, UnexpectedPageError
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -87,6 +87,12 @@ def test_description_keeps_line_breaks():
 
     assert lines[0] == "(POSTAGE DISCOUNTS TABLE) UK."
     assert "Large items tracked £4.30" in lines
+
+
+def test_catalogue_product_page_raises_listing_unavailable():
+    # eBay sent /itm/358862393122 to the product page /p/1607918606 ("CURRENTLY SOLD OUT").
+    with pytest.raises(ListingUnavailable):
+        parse_item("358862393122")
 
 
 def test_sign_in_page_raises_not_logged_in():

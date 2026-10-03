@@ -13,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from findspade.item_page import parse_item_page
+from findspade.item_page import ItemPage, ListingUnavailable, parse_item_page
 from findspade.search_page import EbayErrorPage, UnexpectedPageError, parse_search_page
 from findspade.snapshot import Snapshot
 from findspade.terms import search_url
@@ -71,8 +71,8 @@ def take_snapshot(
                 item_ids.append(item_id)
 
     for n, item_id in enumerate(item_ids, start=1):
-        if snapshot.item_page(item_id, "item") and snapshot.item_page(item_id, "description"):
-            continue  # already fetched by an earlier, interrupted run
+        if _already_fetched(snapshot, item_id):
+            continue  # by an earlier, interrupted run
         log(f"Item {n}/{len(item_ids)}: {item_id}")
         fetcher.fetch_item(item_id)
 
@@ -101,7 +101,12 @@ class _Fetcher:
 
     def fetch_item(self, item_id: str) -> None:
         url = f"https://www.ebay.com/itm/{item_id}"
-        html, item = self._get(url, parse_item_page)
+        html, item = self._get(url, _parse_listing)
+        if item is None:
+            # Saved anyway, as a record of what eBay showed and so a rerun skips it.
+            self.snapshot.save_item_page(item_id, "item", url, html)
+            self.log(f"Item {item_id}: eBay showed a catalogue product page, not the listing")
+            return
         _check_us_location(_delivery_destination(item.delivery))
         self.snapshot.save_item_page(item_id, "item", url, html)
         if item.description_url:
@@ -133,6 +138,22 @@ class _Fetcher:
                     raise
                 asked_user = True
                 self.on_blocked(url, error)
+
+
+def _parse_listing(html: str) -> ItemPage | None:
+    """Parse an item page; None if eBay showed a catalogue product page instead."""
+    try:
+        return parse_item_page(html)
+    except ListingUnavailable:
+        return None
+
+
+def _already_fetched(snapshot: Snapshot, item_id: str) -> bool:
+    """True if an earlier run saved all of the item's pages."""
+    if snapshot.item_page(item_id, "description") is not None:
+        return True
+    html = snapshot.item_page(item_id, "item")
+    return html is not None and _parse_listing(html) is None  # product pages have no description
 
 
 def _check_us_location(ship_to: str | None) -> None:

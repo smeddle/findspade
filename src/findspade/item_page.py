@@ -16,6 +16,14 @@ from bs4 import BeautifulSoup, Tag
 from findspade.search_page import UnexpectedPageError, check_for_ebay_pages
 
 
+class ListingUnavailable(UnexpectedPageError):
+    """eBay showed a catalogue product page (/p/...) instead of the sold listing.
+
+    It happens to some sold listings of catalogued products such as books and games. The
+    page has no details of the listing itself, so there is nothing to parse or retry.
+    """
+
+
 @dataclass
 class ItemPage:
     item_id: str
@@ -39,6 +47,8 @@ class ItemPage:
 def parse_item_page(html: str) -> ItemPage:
     soup = BeautifulSoup(html, "lxml")
     check_for_ebay_pages(soup)
+    if soup.find(string=re.compile(r"eBay Product ID \(ePID\)")):
+        raise ListingUnavailable("eBay showed a catalogue product page instead of the listing")
 
     title = soup.select_one("h1.x-item-title__mainTitle")
     item_id = soup.select_one(".ux-layout-section--itemId .ux-textspans--BOLD")
