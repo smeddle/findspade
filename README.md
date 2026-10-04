@@ -74,12 +74,12 @@ findspade resume data/snapshots/2026-10-04
 ```
 
 This uses the search terms saved in the snapshot and its saved results pages (fetching
-only the pages a search hadn't reached), then fetches only the items that are missing or
-incomplete. Running the original `snapshot` command again on the same day does the same.
+only the pages a search hadn't reached), then fetches only the items without an
+`item.html` or `MISSING` file. (An item's description is saved before its item page, so a
+saved item page means the item is complete.) Running the original `snapshot` command again on the same day does the same.
 
 Both commands take `--verbose`, which logs a line per item page load (HTTP status, time,
-final URL, and whether the title, item number and description link were found), and why
-any already-saved item is being fetched again. Whenever an item page can't be parsed, the
+final URL, and whether the title, item number and description link were found). Whenever an item page can't be parsed, the
 page is saved under `debug/` in the snapshot for inspection.
 
 ### Snapshots and records

@@ -94,12 +94,11 @@ def take_snapshot(
             if item_id not in item_ids:
                 item_ids.append(item_id)
 
-    reasons = {i: reason for i in item_ids if (reason := _why_fetch(snapshot, i))}
-    if len(reasons) < len(item_ids):
-        log(f"{len(item_ids) - len(reasons)} of {len(item_ids)} items already saved")
-    for n, (item_id, reason) in enumerate(reasons.items(), start=1):
-        log(f"Item {n}/{len(reasons)}: {item_id}")
-        fetcher.vlog(item_id, f"fetching because {reason}")
+    to_fetch = [i for i in item_ids if not _already_fetched(snapshot, i)]
+    if len(to_fetch) < len(item_ids):
+        log(f"{len(item_ids) - len(to_fetch)} of {len(item_ids)} items already saved")
+    for n, item_id in enumerate(to_fetch, start=1):
+        log(f"Item {n}/{len(to_fetch)}: {item_id}")
         fetcher.fetch_item(item_id)
 
 
@@ -158,13 +157,14 @@ class _Fetcher:
             self.log(f"Item {item_id}: eBay showed a catalogue product page, not the listing")
             return
         _check_us_location(_delivery_destination(item.delivery))
-        self.snapshot.save_item_page(item_id, "item", url, html)
         if item.description_url:
             # Plain seller HTML, served by eBay without a login, so there is nothing to check.
             self.pause()
             description = self.browser.get(item.description_url)
             self.vlog(item_id, f"description: {self._last_load()}, {len(description):,} chars")
             self.snapshot.save_item_page(item_id, "description", item.description_url, description)
+        # Saved last, so a saved item page means the item is complete (see _already_fetched).
+        self.snapshot.save_item_page(item_id, "item", url, html)
 
     def _parse_item(self, item_id: str, html: str) -> ItemPage | None:
         """Parse a just-loaded item page, logging diagnostics and keeping pages that fail."""
@@ -232,16 +232,10 @@ def _parse_listing(html: str) -> ItemPage | None:
         return None
 
 
-def _why_fetch(snapshot: Snapshot, item_id: str) -> str | None:
-    """Why the item needs fetching, or None if an earlier run saved all of its pages."""
-    if snapshot.item_page(item_id, "description") is not None or snapshot.is_missing(item_id):
-        return None
-    html = snapshot.item_page(item_id, "item")
-    if html is None:
-        return "it has no saved pages"
-    if _parse_listing(html) is None:
-        return None  # a catalogue product page, which has no description
-    return f"its description isn't saved (saved item page: {_item_page_parts(html)})"
+def _already_fetched(snapshot: Snapshot, item_id: str) -> bool:
+    """True if an earlier run finished the item: its item page is saved last, after its
+    description, so a saved item page means it's complete; or eBay said it's missing."""
+    return snapshot.item_page(item_id, "item") is not None or snapshot.is_missing(item_id)
 
 
 def _item_page_parts(html: str) -> str:

@@ -119,8 +119,8 @@ def test_rerun_uses_saved_results_and_continues_from_missing_or_incomplete_items
     first.failures["https://www.ebay.com/itm/307111434811"] = 1  # 5th item: user stops here
     with pytest.raises(KeyboardInterrupt):
         run(snapshot, first, on_blocked=interrupt)
-    # Simulate an interruption between the 4th item's page and its description.
-    (tmp_path / "items/158320267063/description.html").unlink()
+    # Simulate an interruption after the 4th item's description, before its item page.
+    (tmp_path / "items/158320267063/item.html").unlink()
 
     browser = FakeBrowser()
     messages = []
@@ -174,25 +174,9 @@ def test_failed_item_page_is_saved_for_diagnosis_and_verbose_logs_each_load(tmp_
     assert saved.read_text() == VERIFY_PAGE
     assert f"page saved to {saved}" in error
     item_lines = [m for m in messages if m.startswith("  [307111434811]")]
-    assert item_lines[0] == "  [307111434811] fetching because it has no saved pages"
-    assert "title NO, item number NO" in item_lines[1]  # the verification page
-    assert "title yes, item number yes, description link yes" in item_lines[2]  # the retry
-    assert item_lines[3].startswith("  [307111434811] description: ")
-
-
-def test_verbose_explains_why_a_saved_item_is_fetched_again(tmp_path):
-    snapshot = Snapshot(tmp_path)
-    run(snapshot, FakeBrowser())
-    (tmp_path / "items/307111434811/description.html").unlink()
-    messages = []
-
-    run(snapshot, FakeBrowser(), log=messages.append, verbose=True)
-
-    assert any(
-        m.startswith("  [307111434811] fetching because its description isn't saved")
-        and "description link yes" in m
-        for m in messages
-    )
+    assert "title NO, item number NO" in item_lines[0]  # the verification page
+    assert "title yes, item number yes, description link yes" in item_lines[1]  # the retry
+    assert item_lines[2].startswith("  [307111434811] description: ")
 
 
 def test_user_is_asked_again_while_the_page_is_still_blocked(tmp_path):
