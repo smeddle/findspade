@@ -60,7 +60,11 @@ class PlaywrightBrowser:
         ready = None
         if wait_for:
             try:
-                self.page.wait_for_selector(wait_for, timeout=READY_TIMEOUT_SECONDS * 1000)
+                # "attached", not the default "visible": on sold items eBay keeps the listing,
+                # title included, hidden until "See original listing" is clicked.
+                self.page.wait_for_selector(
+                    wait_for, state="attached", timeout=READY_TIMEOUT_SECONDS * 1000
+                )
                 ready = True
             except PlaywrightTimeout:
                 ready = False  # the parser will report what the page is instead
