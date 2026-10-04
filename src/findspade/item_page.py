@@ -15,6 +15,11 @@ from bs4 import BeautifulSoup, Tag
 
 from findspade.search_page import UnexpectedPageError, check_for_ebay_pages
 
+# CSS selectors for parts of the item page, shared with the fetcher's diagnostics.
+TITLE = "h1.x-item-title__mainTitle"
+ITEM_NUMBER = ".ux-layout-section--itemId .ux-textspans--BOLD"
+DESCRIPTION_FRAME = "iframe#desc_ifr"
+
 
 class ListingUnavailable(UnexpectedPageError):
     """eBay showed a catalogue product page (/p/...) instead of the sold listing.
@@ -50,13 +55,19 @@ def parse_item_page(html: str) -> ItemPage:
     if soup.find(string=re.compile(r"eBay Product ID \(ePID\)")):
         raise ListingUnavailable("eBay showed a catalogue product page instead of the listing")
 
-    title = soup.select_one("h1.x-item-title__mainTitle")
-    item_id = soup.select_one(".ux-layout-section--itemId .ux-textspans--BOLD")
+    title = soup.select_one(TITLE)
+    item_id = soup.select_one(ITEM_NUMBER)
     if title is None or item_id is None:
-        raise UnexpectedPageError("Page has no item title or item number")
+        missing = " or ".join(
+            name for name, tag in [("title", title), ("number", item_id)] if not tag
+        )
+        page_title = soup.title.get_text(strip=True) if soup.title else None
+        raise UnexpectedPageError(
+            f"Page has no item {missing} (page title {page_title!r}, {len(html):,} characters)"
+        )
 
     specifics = _item_specifics(soup)
-    description_frame = soup.select_one("iframe#desc_ifr")
+    description_frame = soup.select_one(DESCRIPTION_FRAME)
     description_url = description_frame.get("src") if description_frame else None
     category_id = re.search(r"[?&]category=(\d+)", description_url or "")
 

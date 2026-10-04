@@ -1,6 +1,7 @@
 """Command-line entry point: `findspade <command> ...`."""
 
 import argparse
+import sys
 from datetime import date
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from findspade.snapshot import Snapshot
 from findspade.terms import parse_terms_arg, read_terms_file, search_url
 
 PROFILE_DIR = Path("data/browser-profile")  # holds the eBay login cookies; git ignores data/
+PROFILE_HELP = "browser profile directory holding the eBay login"
 
 
 def _add_terms_arguments(parser: argparse.ArgumentParser) -> None:
@@ -46,12 +48,37 @@ def cmd_login(args: argparse.Namespace) -> None:
 
 
 def cmd_snapshot(args: argparse.Namespace) -> None:
-    snapshot = Snapshot(args.data_dir / "snapshots" / args.date)
+    _fetch(Snapshot(args.data_dir / "snapshots" / args.date), _terms_from_args(args), args)
+
+
+def cmd_resume(args: argparse.Namespace) -> None:
+    snapshot = Snapshot(args.snapshot)
+    terms = snapshot.terms()
+    if not terms:
+        sys.exit(f"No saved searches in {args.snapshot}")
+    _fetch(snapshot, terms, args)
+
+
+def _fetch(snapshot: Snapshot, terms: list[str], args: argparse.Namespace) -> None:
     pace = HumanPace(min_delay=args.min_delay, max_delay=args.max_delay)
     with PlaywrightBrowser(args.profile, headless=args.headless) as browser:
-        take_snapshot(_terms_from_args(args), snapshot, browser, pace)
+        take_snapshot(terms, snapshot, browser, pace, verbose=args.verbose)
     count = write_records(snapshot)
     print(f"Wrote {count} records to {snapshot.root / RECORDS_FILE}")
+
+
+def _add_fetch_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--profile", type=Path, default=PROFILE_DIR, help=PROFILE_HELP)
+    parser.add_argument(
+        "--min-delay", type=float, default=4.0, help="seconds between pages, at least"
+    )
+    parser.add_argument(
+        "--max-delay", type=float, default=12.0, help="seconds between pages, at most"
+    )
+    parser.add_argument("--headless", action="store_true", help="hide the browser window")
+    parser.add_argument(
+        "--verbose", action="store_true", help="log details of each item page load (diagnostics)"
+    )
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -62,9 +89,8 @@ def main(argv: list[str] | None = None) -> None:
     _add_terms_arguments(urls)
     urls.set_defaults(func=cmd_urls)
 
-    profile_help = "browser profile directory holding the eBay login"
     login = commands.add_parser("login", help="sign in to eBay and set the delivery location")
-    login.add_argument("--profile", type=Path, default=PROFILE_DIR, help=profile_help)
+    login.add_argument("--profile", type=Path, default=PROFILE_DIR, help=PROFILE_HELP)
     login.set_defaults(func=cmd_login)
 
     snapshot = commands.add_parser("snapshot", help="fetch a snapshot and write its records")
@@ -73,15 +99,17 @@ def main(argv: list[str] | None = None) -> None:
         "--date", default=date.today().isoformat(), help="snapshot name (default: today)"
     )
     snapshot.add_argument("--data-dir", type=Path, default=Path("data"))
-    snapshot.add_argument("--profile", type=Path, default=PROFILE_DIR, help=profile_help)
-    snapshot.add_argument(
-        "--min-delay", type=float, default=4.0, help="seconds between pages, at least"
-    )
-    snapshot.add_argument(
-        "--max-delay", type=float, default=12.0, help="seconds between pages, at most"
-    )
-    snapshot.add_argument("--headless", action="store_true", help="hide the browser window")
+    _add_fetch_arguments(snapshot)
     snapshot.set_defaults(func=cmd_snapshot)
+
+    resume = commands.add_parser(
+        "resume", help="finish an interrupted snapshot, using its saved search terms"
+    )
+    resume.add_argument(
+        "snapshot", type=Path, help="snapshot directory, e.g. data/snapshots/2026-10-03"
+    )
+    _add_fetch_arguments(resume)
+    resume.set_defaults(func=cmd_resume)
 
     records = commands.add_parser("records", help="parse a snapshot into records.jsonl")
     records.add_argument(

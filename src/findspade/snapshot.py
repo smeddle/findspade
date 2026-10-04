@@ -58,17 +58,25 @@ class Snapshot:
         manifest["pages"][kind] = {"file": filename, "url": url, "fetched_at": fetched_at or _now()}
         _write_manifest(directory, manifest)
 
+    def search_pages(self, term: str) -> list[tuple[int, str]]:
+        """A term's saved results pages as (page number, HTML), in page order."""
+        directory = self.root / "searches" / slugify(term)
+        manifest = _read_manifest(directory)
+        if manifest is None or manifest["term"] != term:
+            return []
+        return [
+            (p["page"], (directory / p["file"]).read_text(encoding="utf-8"))
+            for p in manifest["pages"]
+        ]
+
+    def terms(self) -> list[str]:
+        """The search terms saved in this snapshot."""
+        manifests = sorted((self.root / "searches").glob("*/manifest.json"))
+        return [json.loads(path.read_text(encoding="utf-8"))["term"] for path in manifests]
+
     def searches(self) -> list[tuple[str, list[str]]]:
         """Each saved search as (term, HTML of each page in page order)."""
-        found = []
-        for manifest_path in sorted((self.root / "searches").glob("*/manifest.json")):
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            pages = [
-                (manifest_path.parent / p["file"]).read_text(encoding="utf-8")
-                for p in manifest["pages"]
-            ]
-            found.append((manifest["term"], pages))
-        return found
+        return [(term, [html for _, html in self.search_pages(term)]) for term in self.terms()]
 
     def item_page(self, item_id: str, kind: str) -> str | None:
         """The saved HTML of an item's page, or None if it hasn't been fetched."""

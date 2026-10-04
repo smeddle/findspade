@@ -23,12 +23,22 @@ class EbayErrorPage(UnexpectedPageError):
     """eBay's own "Something went wrong on our end" page; reloading usually works."""
 
 
+class BrowserCheckPage(UnexpectedPageError):
+    """eBay's "Checking your browser" bot check, which normally redirects to the content."""
+
+
+# What a loaded search page shows: results, or a "no exact matches" message.
+SEARCH_PAGE_READY = "ul.srp-results, .srp-save-null-search"
+
+
 def check_for_ebay_pages(soup: BeautifulSoup) -> None:
     """Raise if eBay showed its sign-in page or its error page instead of the content."""
     if soup.find("form", id="signin-form"):
         raise NotLoggedInError("Got the eBay sign-in page; is the browser logged in?")
     if soup.find(string=re.compile("Something went wrong on our end")):
         raise EbayErrorPage("Got eBay's 'Something went wrong on our end' page")
+    if soup.find(string=re.compile("Checking your browser before you access eBay")):
+        raise BrowserCheckPage("eBay's 'Checking your browser' page didn't clear by itself")
 
 
 @dataclass

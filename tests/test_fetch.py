@@ -4,8 +4,9 @@ from pathlib import Path
 import pytest
 
 from findspade.fetch import ERROR_PAGE_RETRIES, HumanPace, WrongLocationError, take_snapshot
+from findspade.item_page import TITLE
 from findspade.records import build_records
-from findspade.search_page import EbayErrorPage, UnexpectedPageError
+from findspade.search_page import SEARCH_PAGE_READY
 from findspade.snapshot import Snapshot
 from findspade.terms import search_url
 
@@ -37,11 +38,13 @@ class FakeBrowser:
         self.item_html = fixture("us/items/257745509133/item.html")
         self.description_html = fixture("items/257745509133/description.html")
         self.requested: list[str] = []
+        self.waited_for: dict[str, str | None] = {}  # url -> CSS selector awaited
         self.failures: dict[str, int] = {}  # url -> times to return a verification page first
         self.errors: dict[str, int] = {}  # url -> times to return eBay's error page first
 
-    def get(self, url: str) -> str:
+    def get(self, url: str, wait_for: str | None = None) -> str:
         self.requested.append(url)
+        self.waited_for[url] = wait_for
         if self.errors.get(url, 0) > 0:
             self.errors[url] -= 1
             return ERROR_PAGE
@@ -57,7 +60,11 @@ class FakeBrowser:
         raise AssertionError(f"Unexpected URL {url}")
 
 
-def run(snapshot, browser, terms=("Antiquity",), on_blocked=None, log=None):
+def interrupt(url, error):
+    raise KeyboardInterrupt  # the user pressing Ctrl-C at the prompt
+
+
+def run(snapshot, browser, terms=("Antiquity",), on_blocked=None, log=None, verbose=False):
     pauses = []
     take_snapshot(
         list(terms),
@@ -66,6 +73,7 @@ def run(snapshot, browser, terms=("Antiquity",), on_blocked=None, log=None):
         pause=lambda: pauses.append(1),
         on_blocked=on_blocked or (lambda url, error: None),
         log=log or (lambda message: None),
+        verbose=verbose,
     )
     return len(pauses)
 
@@ -84,14 +92,58 @@ def test_fetches_every_search_page_then_every_item_with_a_pause_before_each(tmp_
     assert pauses == len(browser.requested) == 2 + 13 * 2
 
 
-def test_rerun_skips_items_already_fetched(tmp_path):
+def test_waits_for_results_or_item_title_but_not_for_descriptions(tmp_path):
+    browser = FakeBrowser()
+
+    run(Snapshot(tmp_path), browser)
+
+    assert browser.waited_for[search_url("Antiquity", 1)] == SEARCH_PAGE_READY
+    assert browser.waited_for["https://www.ebay.com/itm/307111434811"] == TITLE
+    descriptions = [url for url in browser.requested if "ebaydesc" in url]
+    assert descriptions and all(browser.waited_for[url] is None for url in descriptions)
+
+
+def test_rerun_of_a_finished_snapshot_fetches_nothing(tmp_path):
     snapshot = Snapshot(tmp_path)
     run(snapshot, FakeBrowser())
 
     browser = FakeBrowser()
     run(snapshot, browser)
 
-    assert browser.requested == [search_url("Antiquity", 1), search_url("Antiquity", 2)]
+    assert browser.requested == []
+
+
+def test_rerun_uses_saved_results_and_continues_from_missing_or_incomplete_items(tmp_path):
+    snapshot = Snapshot(tmp_path)
+    first = FakeBrowser()
+    first.failures["https://www.ebay.com/itm/307111434811"] = 1  # 5th item: user stops here
+    with pytest.raises(KeyboardInterrupt):
+        run(snapshot, first, on_blocked=interrupt)
+    # Simulate an interruption between the 4th item's page and its description.
+    (tmp_path / "items/158320267063/description.html").unlink()
+
+    browser = FakeBrowser()
+    messages = []
+    run(snapshot, browser, log=messages.append)
+
+    assert not any("/sch/" in url for url in browser.requested)  # no search pages refetched
+    assert "https://www.ebay.com/itm/327366761616" not in browser.requested  # 1st item: done
+    assert "https://www.ebay.com/itm/158320267063" in browser.requested  # incomplete
+    assert "https://www.ebay.com/itm/307111434811" in browser.requested  # not reached
+    assert "3 of 13 items already saved" in messages
+    assert len(build_records(snapshot)) == 13
+
+
+def test_rerun_continues_an_unfinished_search_from_the_next_page(tmp_path):
+    snapshot = Snapshot(tmp_path)
+    page_1 = FakeBrowser().pages[search_url("Antiquity", 1)]
+    snapshot.save_search_page("Antiquity", 1, search_url("Antiquity", 1), page_1)
+
+    browser = FakeBrowser()
+    run(snapshot, browser)
+
+    searched = [url for url in browser.requested if "/sch/" in url]
+    assert searched == [search_url("Antiquity", 2)]
 
 
 def test_user_gets_one_chance_to_clear_a_verification_page(tmp_path):
@@ -107,13 +159,62 @@ def test_user_gets_one_chance_to_clear_a_verification_page(tmp_path):
     assert snapshot.item_page("307111434811", "item") == browser.item_html
 
 
-def test_second_verification_page_stops_the_run_without_saving_it(tmp_path):
+def test_failed_item_page_is_saved_for_diagnosis_and_verbose_logs_each_load(tmp_path):
     snapshot = Snapshot(tmp_path)
     browser = FakeBrowser()
-    browser.failures["https://www.ebay.com/itm/307111434811"] = 2
+    browser.failures["https://www.ebay.com/itm/307111434811"] = 1
+    errors, messages = [], []
 
-    with pytest.raises(UnexpectedPageError):
-        run(snapshot, browser)
+    run(snapshot, browser, on_blocked=lambda url, e: errors.append(str(e)), log=messages.append,
+        verbose=True)  # fmt: skip
+
+    [error] = errors
+    assert "Page has no item title or number (page title None" in error
+    [saved] = (tmp_path / "debug").glob("307111434811-*.html")
+    assert saved.read_text() == VERIFY_PAGE
+    assert f"page saved to {saved}" in error
+    item_lines = [m for m in messages if m.startswith("  [307111434811]")]
+    assert item_lines[0] == "  [307111434811] fetching because it has no saved pages"
+    assert "title NO, item number NO" in item_lines[1]  # the verification page
+    assert "title yes, item number yes, description link yes" in item_lines[2]  # the retry
+    assert item_lines[3].startswith("  [307111434811] description: ")
+
+
+def test_verbose_explains_why_a_saved_item_is_fetched_again(tmp_path):
+    snapshot = Snapshot(tmp_path)
+    run(snapshot, FakeBrowser())
+    (tmp_path / "items/307111434811/description.html").unlink()
+    messages = []
+
+    run(snapshot, FakeBrowser(), log=messages.append, verbose=True)
+
+    assert any(
+        m.startswith("  [307111434811] fetching because its description isn't saved")
+        and "description link yes" in m
+        for m in messages
+    )
+
+
+def test_user_is_asked_again_while_the_page_is_still_blocked(tmp_path):
+    snapshot = Snapshot(tmp_path)
+    browser = FakeBrowser()
+    url = "https://www.ebay.com/itm/307111434811"
+    browser.failures[url] = 2
+    blocked = []
+
+    run(snapshot, browser, on_blocked=lambda url, error: blocked.append(url))
+
+    assert blocked == [url, url]
+    assert snapshot.item_page("307111434811", "item") == browser.item_html
+
+
+def test_user_can_stop_at_the_prompt_without_the_blocked_page_being_saved(tmp_path):
+    snapshot = Snapshot(tmp_path)
+    browser = FakeBrowser()
+    browser.failures["https://www.ebay.com/itm/307111434811"] = 1
+
+    with pytest.raises(KeyboardInterrupt):
+        run(snapshot, browser, on_blocked=interrupt)
 
     assert snapshot.item_page("307111434811", "item") is None
 
@@ -133,14 +234,16 @@ def test_ebay_error_page_is_reloaded_after_the_usual_pause(tmp_path):
     assert len(snapshot.searches()[0][1]) == 2
 
 
-def test_persistent_ebay_error_page_stops_the_run(tmp_path):
+def test_persistent_ebay_error_page_is_handed_to_the_user_after_the_reloads(tmp_path):
     browser = FakeBrowser()
-    browser.errors[search_url("Antiquity", 1)] = 10
+    url = search_url("Antiquity", 1)
+    browser.errors[url] = 1 + ERROR_PAGE_RETRIES + 1  # still failing once the user is asked
+    blocked = []
 
-    with pytest.raises(EbayErrorPage):
-        run(Snapshot(tmp_path), browser)
+    run(Snapshot(tmp_path), browser, on_blocked=lambda url, error: blocked.append(url))
 
-    assert browser.requested.count(search_url("Antiquity", 1)) == 1 + ERROR_PAGE_RETRIES
+    assert blocked == [url, url]  # after the automatic reloads, and once more after Enter
+    assert browser.requested.count(url) == 1 + ERROR_PAGE_RETRIES + 2
 
 
 def test_catalogue_product_page_is_saved_without_a_description_or_asking_the_user(tmp_path):

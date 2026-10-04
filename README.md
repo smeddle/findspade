@@ -57,11 +57,28 @@ findspade snapshot --terms-file terms.txt
 
 This fetches every results page for each term, then each item's page and description,
 waiting 4–12 seconds between pages (`--min-delay`, `--max-delay`) with an occasional
-longer break, and finally writes `records.jsonl`. eBay's occasional "Something went wrong
-on our end" page is reloaded automatically (after the same wait), up to 3 times. If eBay
-shows a sign-in or verification page, it pauses so you can deal with it in the browser
-window. If interrupted, run the same
-command again: items already saved are skipped.
+longer break, and finally writes `records.jsonl`. After each page loads it waits (up to
+10 seconds) for the results or item title to appear, so eBay's automatic "Checking your
+browser" bot check can clear by itself. eBay's occasional "Something went wrong
+on our end" page is reloaded automatically (after the same wait), up to 3 times. For
+anything it can't get past by itself (a sign-in or verification page, or a persistent error
+page) it pauses: deal with it in the browser window if needed and press Enter to reload,
+as often as it takes, or press Ctrl-C to stop.
+
+If a snapshot is interrupted, finish it with:
+
+```sh
+findspade resume data/snapshots/2026-10-04
+```
+
+This uses the search terms saved in the snapshot and its saved results pages (fetching
+only the pages a search hadn't reached), then fetches only the items that are missing or
+incomplete. Running the original `snapshot` command again on the same day does the same.
+
+Both commands take `--verbose`, which logs a line per item page load (HTTP status, time,
+final URL, and whether the title, item number and description link were found), and why
+any already-saved item is being fetched again. Whenever an item page can't be parsed, the
+page is saved under `debug/` in the snapshot for inspection.
 
 ### Snapshots and records
 
