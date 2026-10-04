@@ -13,12 +13,16 @@ from dataclasses import dataclass, field
 
 from bs4 import BeautifulSoup, Tag
 
-from findspade.search_page import UnexpectedPageError, check_for_ebay_pages
+from findspade.search_page import UnexpectedPageError, check_for_ebay_pages, find_text
 
 # CSS selectors for parts of the item page, shared with the fetcher's diagnostics.
 TITLE = "h1.x-item-title__mainTitle"
 ITEM_NUMBER = ".ux-layout-section--itemId .ux-textspans--BOLD"
 DESCRIPTION_FRAME = "iframe#desc_ifr"
+
+
+class ListingMissing(UnexpectedPageError):
+    """eBay says the listing is gone: "We looked everywhere! Looks like this page is missing"."""
 
 
 class ListingUnavailable(UnexpectedPageError):
@@ -52,7 +56,9 @@ class ItemPage:
 def parse_item_page(html: str) -> ItemPage:
     soup = BeautifulSoup(html, "lxml")
     check_for_ebay_pages(soup)
-    if soup.find(string=re.compile(r"eBay Product ID \(ePID\)")):
+    if find_text(soup, "Looks like this page is missing"):
+        raise ListingMissing("eBay says the listing is missing")
+    if find_text(soup, r"eBay Product ID \(ePID\)"):
         raise ListingUnavailable("eBay showed a catalogue product page instead of the listing")
 
     title = soup.select_one(TITLE)
@@ -78,7 +84,7 @@ def parse_item_page(html: str) -> ItemPage:
         sale_status=_text(soup.select_one(".d-statusmessage")),
         price=_text(soup.select_one(".x-price-primary__price")),
         price_converted=_text(soup.select_one(".x-price-approx__price")),
-        best_offer_accepted=soup.find(string=re.compile("Best offer accepted")) is not None,
+        best_offer_accepted=find_text(soup, "Best offer accepted") is not None,
         condition=specifics["Condition"].split(":")[0] if "Condition" in specifics else None,
         location=_location(soup),
         shipping=_first_line(soup.select_one(".ux-labels-values--shipping")),
@@ -115,7 +121,7 @@ def _item_specifics(soup: BeautifulSoup) -> dict[str, str]:
 
 
 def _location(soup: BeautifulSoup) -> str | None:
-    located = soup.find(string=re.compile(r"^\s*Located in:"))
+    located = find_text(soup, r"^\s*Located in:")
     return located.split(":", 1)[1].strip() if located else None
 
 
@@ -133,7 +139,7 @@ def _first_line(row: Tag | None) -> str | None:
 
 def _breadcrumb(soup: BeautifulSoup) -> list[str]:
     """Category path from the item specifics, e.g. ["Jewelry & Watches", "Brooches & Pins"]."""
-    label = soup.find(string=re.compile(r"^\s*breadcrumb\s*$"))
+    label = find_text(soup, r"^\s*breadcrumb\s*$")
     nav = label and label.find_parent("nav")
     return [_text(a) for a in nav.find_all("a")] if nav else []
 

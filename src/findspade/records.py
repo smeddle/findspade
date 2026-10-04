@@ -3,7 +3,8 @@
 Where the search card and the item page both have a value, the item page's is used: it
 is more detailed (e.g. the town as well as the country). The search card supplies what
 the item page lacks: the sold date with its year, and the price in US dollars. Items
-whose pages weren't fetched, or couldn't be parsed, get a record from the search card alone.
+whose pages weren't fetched, or couldn't be parsed, get a record from the search card alone;
+"item_page_status" says which case applies.
 """
 
 import json
@@ -16,6 +17,15 @@ from findspade.search_page import SearchResult, UnexpectedPageError, parse_searc
 from findspade.snapshot import Snapshot
 
 RECORDS_FILE = "records.jsonl"
+
+# Values of a record's "item_page_status": why its item-page fields are or aren't filled in.
+ITEM_PAGE_STATUSES = {
+    "ok": "item page parsed",
+    "listing_missing": "eBay said the listing is missing (the item has a MISSING file)",
+    "product_page": "eBay showed a catalogue product page instead of the listing",
+    "not_fetched": "the item page hasn't been fetched (yet)",
+    "unreadable": "the saved item page couldn't be parsed",
+}
 
 
 def build_records(snapshot: Snapshot) -> list[dict]:
@@ -42,7 +52,7 @@ def write_records(snapshot: Snapshot) -> int:
 
 
 def _record(snapshot: Snapshot, result: SearchResult, search_terms: list[str]) -> dict:
-    item = _item_page(snapshot, result.item_id)
+    item, item_page_status = _item_page(snapshot, result.item_id)
     description_html = snapshot.item_page(result.item_id, "description")
     description = parse_description(description_html) if description_html else None
     title = item.title if item else result.title
@@ -52,6 +62,7 @@ def _record(snapshot: Snapshot, result: SearchResult, search_terms: list[str]) -
         "item_id": result.item_id,
         "url": result.url,
         "search_terms": search_terms,
+        "item_page_status": item_page_status,
         "title": title,
         "subtitle": result.subtitle,
         "sold_date": result.sold_date.isoformat() if result.sold_date else None,
@@ -73,14 +84,17 @@ def _record(snapshot: Snapshot, result: SearchResult, search_terms: list[str]) -
     }
 
 
-def _item_page(snapshot: Snapshot, item_id: str) -> ItemPage | None:
+def _item_page(snapshot: Snapshot, item_id: str) -> tuple[ItemPage | None, str]:
+    """The parsed item page, if usable, and its status (see ITEM_PAGE_STATUSES)."""
+    if snapshot.is_missing(item_id):
+        return None, "listing_missing"
     html = snapshot.item_page(item_id, "item")
     if html is None:
-        return None
+        return None, "not_fetched"
     try:
-        return parse_item_page(html)
+        return parse_item_page(html), "ok"
     except ListingUnavailable:
-        return None  # eBay showed a catalogue product page; the search result is all there is
+        return None, "product_page"
     except UnexpectedPageError as e:
         print(f"Warning: item {item_id}: {e}; using its search result only", file=sys.stderr)
-        return None
+        return None, "unreadable"

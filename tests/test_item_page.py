@@ -2,7 +2,12 @@ from pathlib import Path
 
 import pytest
 
-from findspade.item_page import ListingUnavailable, parse_description, parse_item_page
+from findspade.item_page import (
+    ListingMissing,
+    ListingUnavailable,
+    parse_description,
+    parse_item_page,
+)
 from findspade.search_page import NotLoggedInError, UnexpectedPageError
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -93,6 +98,29 @@ def test_catalogue_product_page_raises_listing_unavailable():
     # eBay sent /itm/358862393122 to the product page /p/1607918606 ("CURRENTLY SOLD OUT").
     with pytest.raises(ListingUnavailable):
         parse_item("358862393122")
+
+
+# Real eBay pages embed interface text, including error-page wording, in scripts. The
+# trimmed fixtures have no scripts, so this puts such a script back.
+SCRIPT_WITH_ERROR_WORDING = (
+    '<script>{"default_description":"Looks like this page is missing.",'
+    '"error":"Something went wrong on our end","check":"Checking your browser before you '
+    'access eBay","bo":"Best offer accepted","epid":"eBay Product ID (ePID)"}</script>'
+)
+
+
+def test_error_wording_inside_scripts_is_ignored():
+    html = (FIXTURES / "items" / "398366490754" / "item.html").read_text(encoding="utf-8")
+    item = parse_item_page(html.replace("</body>", SCRIPT_WITH_ERROR_WORDING + "</body>"))
+
+    assert item.title.startswith("Viking Omega")
+    assert not item.best_offer_accepted
+
+
+def test_missing_listing_page_raises_listing_missing():
+    html = (FIXTURES / "missing-listing.html").read_text(encoding="utf-8")
+    with pytest.raises(ListingMissing):
+        parse_item_page(html)
 
 
 def test_sign_in_page_raises_not_logged_in():

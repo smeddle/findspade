@@ -63,7 +63,9 @@ browser" bot check can clear by itself. eBay's occasional "Something went wrong
 on our end" page is reloaded automatically (after the same wait), up to 3 times. For
 anything it can't get past by itself (a sign-in or verification page, or a persistent error
 page) it pauses: deal with it in the browser window if needed and press Enter to reload,
-as often as it takes, or press Ctrl-C to stop.
+as often as it takes, or press Ctrl-C to stop. Items whose listing eBay says is missing ("Looks like
+this page is missing") get a `MISSING` file in their directory instead of pages, and are
+skipped from then on; their records come from the search results.
 
 If a snapshot is interrupted, finish it with:
 
@@ -72,12 +74,12 @@ findspade resume data/snapshots/2026-10-04
 ```
 
 This uses the search terms saved in the snapshot and its saved results pages (fetching
-only the pages a search hadn't reached), then fetches only the items that are missing or
-incomplete. Running the original `snapshot` command again on the same day does the same.
+only the pages a search hadn't reached), then fetches only the items without an
+`item.html` or `MISSING` file. (An item's description is saved before its item page, so a
+saved item page means the item is complete.) Running the original `snapshot` command again on the same day does the same.
 
 Both commands take `--verbose`, which logs a line per item page load (HTTP status, time,
-final URL, and whether the title, item number and description link were found), and why
-any already-saved item is being fetched again. Whenever an item page can't be parsed, the
+final URL, and whether the title, item number and description link were found). Whenever an item page can't be parsed, the
 page is saved under `debug/` in the snapshot for inspection.
 
 ### Snapshots and records
@@ -93,7 +95,10 @@ findspade records data/snapshots/2026-10-03
 Each record combines the item's search result, item page and description: title, sold
 date, prices, condition, seller, location, shipping, category, item specifics, the full
 description text, any PAS / export licence / provenance mentions, and the search terms
-that found it. Records can be rebuilt from the raw pages at any time.
+that found it. `item_page_status` says whether the item-page fields could be filled in:
+`ok`, `listing_missing`, `product_page` (eBay showed a catalogue page instead of the
+listing), `not_fetched` or `unreadable`; otherwise those fields come from the search
+results or are empty. Records can be rebuilt from the raw pages at any time.
 
 ## Development
 

@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, NavigableString, Tag
 
 
 class UnexpectedPageError(Exception):
@@ -31,13 +31,25 @@ class BrowserCheckPage(UnexpectedPageError):
 SEARCH_PAGE_READY = "ul.srp-results, .srp-save-null-search"
 
 
+def find_text(soup: BeautifulSoup, pattern: str) -> NavigableString | None:
+    """The first piece of page text matching the regex, ignoring scripts and styles.
+
+    eBay pages embed bundles of interface text in scripts, including the wording of its
+    error pages ("Looks like this page is missing"), so those must not count.
+    """
+    regex = re.compile(pattern)
+    return soup.find(
+        string=lambda s: regex.search(s) and s.parent.name not in ("script", "style", "noscript")
+    )
+
+
 def check_for_ebay_pages(soup: BeautifulSoup) -> None:
     """Raise if eBay showed its sign-in page or its error page instead of the content."""
     if soup.find("form", id="signin-form"):
         raise NotLoggedInError("Got the eBay sign-in page; is the browser logged in?")
-    if soup.find(string=re.compile("Something went wrong on our end")):
+    if find_text(soup, "Something went wrong on our end"):
         raise EbayErrorPage("Got eBay's 'Something went wrong on our end' page")
-    if soup.find(string=re.compile("Checking your browser before you access eBay")):
+    if find_text(soup, "Checking your browser before you access eBay"):
         raise BrowserCheckPage("eBay's 'Checking your browser' page didn't clear by itself")
 
 
