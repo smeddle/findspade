@@ -21,6 +21,10 @@ ITEM_NUMBER = ".ux-layout-section--itemId .ux-textspans--BOLD"
 DESCRIPTION_FRAME = "iframe#desc_ifr"
 
 
+class ListingMissing(UnexpectedPageError):
+    """eBay says the listing is gone: "We looked everywhere! Looks like this page is missing"."""
+
+
 class ListingUnavailable(UnexpectedPageError):
     """eBay showed a catalogue product page (/p/...) instead of the sold listing.
 
@@ -52,6 +56,8 @@ class ItemPage:
 def parse_item_page(html: str) -> ItemPage:
     soup = BeautifulSoup(html, "lxml")
     check_for_ebay_pages(soup)
+    if soup.find(string=re.compile("Looks like this page is missing")):
+        raise ListingMissing("eBay says the listing is missing")
     if soup.find(string=re.compile(r"eBay Product ID \(ePID\)")):
         raise ListingUnavailable("eBay showed a catalogue product page instead of the listing")
 

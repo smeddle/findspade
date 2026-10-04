@@ -7,6 +7,7 @@ Layout of one snapshot (one directory per date, e.g. data/snapshots/2026-10-03):
     items/<item id>/manifest.json        URL and fetch time of each page
     items/<item id>/item.html            the sold item page (which is the original listing)
     items/<item id>/description.html     the description, loaded separately by eBay
+    items/<item id>/MISSING              instead of the pages, if eBay says the listing is gone
     records.jsonl                        written by records.write_records
 
 Items are stored once per snapshot, however many search terms find them.
@@ -19,6 +20,7 @@ from pathlib import Path
 from findspade.terms import slugify
 
 ITEM_PAGE_KINDS = ("item", "description")
+MISSING_FILE = "MISSING"
 
 
 class Snapshot:
@@ -58,6 +60,16 @@ class Snapshot:
         manifest["pages"][kind] = {"file": filename, "url": url, "fetched_at": fetched_at or _now()}
         _write_manifest(directory, manifest)
 
+    def mark_missing(self, item_id: str, url: str) -> None:
+        """Record that eBay says the item's listing is missing, so it isn't fetched again."""
+        directory = self.root / "items" / _checked(item_id)
+        directory.mkdir(parents=True, exist_ok=True)
+        text = f"eBay said this listing is missing: {url} at {_now()}\n"
+        (directory / MISSING_FILE).write_text(text, encoding="utf-8")
+
+    def is_missing(self, item_id: str) -> bool:
+        return (self.root / "items" / _checked(item_id) / MISSING_FILE).exists()
+
     def search_pages(self, term: str) -> list[tuple[int, str]]:
         """A term's saved results pages as (page number, HTML), in page order."""
         directory = self.root / "searches" / slugify(term)
@@ -84,11 +96,16 @@ class Snapshot:
         return path.read_text(encoding="utf-8") if path.exists() else None
 
     def _item_directory(self, item_id: str, kind: str) -> Path:
-        if not item_id.isdigit():
-            raise ValueError(f"Not an eBay item id: {item_id!r}")
         if kind not in ITEM_PAGE_KINDS:
             raise ValueError(f"Unknown item page kind {kind!r}, expected one of {ITEM_PAGE_KINDS}")
-        return self.root / "items" / item_id
+        return self.root / "items" / _checked(item_id)
+
+
+def _checked(item_id: str) -> str:
+    """The item id, if it is one; digits only, so it can't point outside the snapshot."""
+    if not item_id.isdigit():
+        raise ValueError(f"Not an eBay item id: {item_id!r}")
+    return item_id
 
 
 def _read_manifest(directory: Path) -> dict | None:

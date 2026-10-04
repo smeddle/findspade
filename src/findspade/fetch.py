@@ -22,6 +22,7 @@ from findspade.item_page import (
     ITEM_NUMBER,
     TITLE,
     ItemPage,
+    ListingMissing,
     ListingUnavailable,
     parse_item_page,
 )
@@ -145,7 +146,12 @@ class _Fetcher:
 
     def fetch_item(self, item_id: str) -> None:
         url = f"https://www.ebay.com/itm/{item_id}"
-        html, item = self._get(url, lambda html: self._parse_item(item_id, html), wait_for=TITLE)
+        try:
+            html, item = self._get(url, lambda h: self._parse_item(item_id, h), wait_for=TITLE)
+        except ListingMissing:
+            self.snapshot.mark_missing(item_id, url)
+            self.log(f"Item {item_id}: eBay says the listing is missing; marked and skipped")
+            return
         if item is None:
             # Saved anyway, as a record of what eBay showed and so a rerun skips it.
             self.snapshot.save_item_page(item_id, "item", url, html)
@@ -165,7 +171,7 @@ class _Fetcher:
         self.vlog(item_id, f"item page: {self._last_load()}, {_item_page_parts(html)}")
         try:
             return _parse_listing(html)
-        except EbayErrorPage:
+        except (EbayErrorPage, ListingMissing):
             raise
         except UnexpectedPageError as error:
             path = self._save_failed_page(item_id, html)
@@ -206,6 +212,8 @@ class _Fetcher:
             html = self.browser.get(url, wait_for=wait_for)
             try:
                 return html, parse(html)
+            except ListingMissing:
+                raise  # nothing to retry or fix: eBay says the listing is gone
             except EbayErrorPage as error:
                 if retries < ERROR_PAGE_RETRIES:
                     retries += 1
@@ -226,7 +234,7 @@ def _parse_listing(html: str) -> ItemPage | None:
 
 def _why_fetch(snapshot: Snapshot, item_id: str) -> str | None:
     """Why the item needs fetching, or None if an earlier run saved all of its pages."""
-    if snapshot.item_page(item_id, "description") is not None:
+    if snapshot.item_page(item_id, "description") is not None or snapshot.is_missing(item_id):
         return None
     html = snapshot.item_page(item_id, "item")
     if html is None:

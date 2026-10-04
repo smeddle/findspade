@@ -264,6 +264,33 @@ def test_catalogue_product_page_is_saved_without_a_description_or_asking_the_use
     assert url not in rerun.requested
 
 
+def test_missing_listing_is_flagged_and_skipped_without_asking_the_user(tmp_path):
+    snapshot = Snapshot(tmp_path)
+    browser = FakeBrowser()
+    url = "https://www.ebay.com/itm/307111434811"
+    browser.pages[url] = (FIXTURES / "missing-listing.html").read_text(encoding="utf-8")
+    blocked, messages = [], []
+
+    run(snapshot, browser, on_blocked=lambda url, e: blocked.append(url), log=messages.append)
+
+    assert blocked == []
+    assert snapshot.is_missing("307111434811")
+    assert (
+        (tmp_path / "items/307111434811/MISSING")
+        .read_text()
+        .startswith(f"eBay said this listing is missing: {url}")
+    )
+    assert snapshot.item_page("307111434811", "item") is None
+    assert not (tmp_path / "debug").exists()
+    assert "Item 307111434811: eBay says the listing is missing; marked and skipped" in messages
+    record = next(r for r in build_records(snapshot) if r["item_id"] == "307111434811")
+    assert record["title"] == 'Roman Antiquity - A Roman " Trumpet " Fibula Brooch'  # search card
+
+    rerun = FakeBrowser()
+    run(snapshot, rerun)
+    assert url not in rerun.requested
+
+
 def test_refuses_to_run_unless_delivery_location_is_a_us_zip(tmp_path):
     snapshot = Snapshot(tmp_path)
 

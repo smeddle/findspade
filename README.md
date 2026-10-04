@@ -63,7 +63,9 @@ browser" bot check can clear by itself. eBay's occasional "Something went wrong
 on our end" page is reloaded automatically (after the same wait), up to 3 times. For
 anything it can't get past by itself (a sign-in or verification page, or a persistent error
 page) it pauses: deal with it in the browser window if needed and press Enter to reload,
-as often as it takes, or press Ctrl-C to stop.
+as often as it takes, or press Ctrl-C to stop. Items whose listing eBay says is missing ("Looks like
+this page is missing") get a `MISSING` file in their directory instead of pages, and are
+skipped from then on; their records come from the search results.
 
 If a snapshot is interrupted, finish it with:
 

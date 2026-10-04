@@ -2,7 +2,12 @@ from pathlib import Path
 
 import pytest
 
-from findspade.item_page import ListingUnavailable, parse_description, parse_item_page
+from findspade.item_page import (
+    ListingMissing,
+    ListingUnavailable,
+    parse_description,
+    parse_item_page,
+)
 from findspade.search_page import NotLoggedInError, UnexpectedPageError
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -93,6 +98,12 @@ def test_catalogue_product_page_raises_listing_unavailable():
     # eBay sent /itm/358862393122 to the product page /p/1607918606 ("CURRENTLY SOLD OUT").
     with pytest.raises(ListingUnavailable):
         parse_item("358862393122")
+
+
+def test_missing_listing_page_raises_listing_missing():
+    html = (FIXTURES / "missing-listing.html").read_text(encoding="utf-8")
+    with pytest.raises(ListingMissing):
+        parse_item_page(html)
 
 
 def test_sign_in_page_raises_not_logged_in():
