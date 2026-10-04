@@ -100,6 +100,12 @@ def test_ebay_error_page_raises_its_own_error():
         parse_item_page(html)
 
 
+def test_error_wording_inside_scripts_is_ignored():
+    script = "<script>var t = 'Something went wrong on our end';</script>"
+    html = (FIXTURES / "antiquity-p1.html").read_text(encoding="utf-8")
+    assert len(parse_search_page(html.replace("</body>", script + "</body>")).results) == 5
+
+
 def test_ebay_browser_check_page_raises_its_own_error():
     html = (FIXTURES.parent / "browser-check.html").read_text(encoding="utf-8")
     with pytest.raises(BrowserCheckPage):
