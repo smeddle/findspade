@@ -67,8 +67,12 @@ class HumanPace:
 
 
 def ask_user_to_unblock(url: str, error: Exception) -> None:
-    """Default when eBay shows a sign-in or verification page: let the user deal with it."""
-    input(f"\n{error}\nwhile loading {url}\nFix it in the browser window, then press Enter. ")
+    """Default when eBay shows a page the fetcher can't get past: let the user deal with it."""
+    input(
+        f"\n{error}\nwhile loading {url}\n"
+        "Fix it in the browser window if needed, then press Enter to reload "
+        "(or Ctrl-C to stop; `findspade resume` carries on later). "
+    )
 
 
 def take_snapshot(
@@ -192,25 +196,23 @@ class _Fetcher:
     def _get(self, url: str, parse: Callable, wait_for: str | None = None):
         """Load and parse a page, pausing before every attempt.
 
-        eBay's error page is reloaded up to ERROR_PAGE_RETRIES times. Any other unexpected
-        page (e.g. verification) is handed to the user once; a second one stops the run.
+        eBay's error page is reloaded up to ERROR_PAGE_RETRIES times by itself. Any page that
+        is still wrong after that (verification, sign-in, a persistent error) is handed to
+        the user, and reloaded each time they say it's fixed, until it parses.
         """
         retries = 0
-        asked_user = False
         while True:
             self.pause()
             html = self.browser.get(url, wait_for=wait_for)
             try:
                 return html, parse(html)
-            except EbayErrorPage:
-                if retries == ERROR_PAGE_RETRIES:
-                    raise
-                retries += 1
-                self.log(f"eBay error page; reloading ({retries}/{ERROR_PAGE_RETRIES})")
+            except EbayErrorPage as error:
+                if retries < ERROR_PAGE_RETRIES:
+                    retries += 1
+                    self.log(f"eBay error page; reloading ({retries}/{ERROR_PAGE_RETRIES})")
+                else:
+                    self.on_blocked(url, error)
             except UnexpectedPageError as error:
-                if asked_user:
-                    raise
-                asked_user = True
                 self.on_blocked(url, error)
 
 

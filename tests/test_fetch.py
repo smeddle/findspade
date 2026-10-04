@@ -6,7 +6,7 @@ import pytest
 from findspade.fetch import ERROR_PAGE_RETRIES, HumanPace, WrongLocationError, take_snapshot
 from findspade.item_page import TITLE
 from findspade.records import build_records
-from findspade.search_page import SEARCH_PAGE_READY, EbayErrorPage, UnexpectedPageError
+from findspade.search_page import SEARCH_PAGE_READY
 from findspade.snapshot import Snapshot
 from findspade.terms import search_url
 
@@ -58,6 +58,10 @@ class FakeBrowser:
         if url.startswith("https://itm.ebaydesc.com/"):
             return self.description_html
         raise AssertionError(f"Unexpected URL {url}")
+
+
+def interrupt(url, error):
+    raise KeyboardInterrupt  # the user pressing Ctrl-C at the prompt
 
 
 def run(snapshot, browser, terms=("Antiquity",), on_blocked=None, log=None, verbose=False):
@@ -112,9 +116,9 @@ def test_rerun_of_a_finished_snapshot_fetches_nothing(tmp_path):
 def test_rerun_uses_saved_results_and_continues_from_missing_or_incomplete_items(tmp_path):
     snapshot = Snapshot(tmp_path)
     first = FakeBrowser()
-    first.failures["https://www.ebay.com/itm/307111434811"] = 2  # 5th item: run stops here
-    with pytest.raises(UnexpectedPageError):
-        run(snapshot, first)
+    first.failures["https://www.ebay.com/itm/307111434811"] = 1  # 5th item: user stops here
+    with pytest.raises(KeyboardInterrupt):
+        run(snapshot, first, on_blocked=interrupt)
     # Simulate an interruption between the 4th item's page and its description.
     (tmp_path / "items/158320267063/description.html").unlink()
 
@@ -191,13 +195,26 @@ def test_verbose_explains_why_a_saved_item_is_fetched_again(tmp_path):
     )
 
 
-def test_second_verification_page_stops_the_run_without_saving_it(tmp_path):
+def test_user_is_asked_again_while_the_page_is_still_blocked(tmp_path):
     snapshot = Snapshot(tmp_path)
     browser = FakeBrowser()
-    browser.failures["https://www.ebay.com/itm/307111434811"] = 2
+    url = "https://www.ebay.com/itm/307111434811"
+    browser.failures[url] = 2
+    blocked = []
 
-    with pytest.raises(UnexpectedPageError):
-        run(snapshot, browser)
+    run(snapshot, browser, on_blocked=lambda url, error: blocked.append(url))
+
+    assert blocked == [url, url]
+    assert snapshot.item_page("307111434811", "item") == browser.item_html
+
+
+def test_user_can_stop_at_the_prompt_without_the_blocked_page_being_saved(tmp_path):
+    snapshot = Snapshot(tmp_path)
+    browser = FakeBrowser()
+    browser.failures["https://www.ebay.com/itm/307111434811"] = 1
+
+    with pytest.raises(KeyboardInterrupt):
+        run(snapshot, browser, on_blocked=interrupt)
 
     assert snapshot.item_page("307111434811", "item") is None
 
@@ -217,14 +234,16 @@ def test_ebay_error_page_is_reloaded_after_the_usual_pause(tmp_path):
     assert len(snapshot.searches()[0][1]) == 2
 
 
-def test_persistent_ebay_error_page_stops_the_run(tmp_path):
+def test_persistent_ebay_error_page_is_handed_to_the_user_after_the_reloads(tmp_path):
     browser = FakeBrowser()
-    browser.errors[search_url("Antiquity", 1)] = 10
+    url = search_url("Antiquity", 1)
+    browser.errors[url] = 1 + ERROR_PAGE_RETRIES + 1  # still failing once the user is asked
+    blocked = []
 
-    with pytest.raises(EbayErrorPage):
-        run(Snapshot(tmp_path), browser)
+    run(Snapshot(tmp_path), browser, on_blocked=lambda url, error: blocked.append(url))
 
-    assert browser.requested.count(search_url("Antiquity", 1)) == 1 + ERROR_PAGE_RETRIES
+    assert blocked == [url, url]  # after the automatic reloads, and once more after Enter
+    assert browser.requested.count(url) == 1 + ERROR_PAGE_RETRIES + 2
 
 
 def test_catalogue_product_page_is_saved_without_a_description_or_asking_the_user(tmp_path):

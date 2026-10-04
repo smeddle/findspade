@@ -60,9 +60,10 @@ waiting 4–12 seconds between pages (`--min-delay`, `--max-delay`) with an occa
 longer break, and finally writes `records.jsonl`. After each page loads it waits (up to
 10 seconds) for the results or item title to appear, so eBay's automatic "Checking your
 browser" bot check can clear by itself. eBay's occasional "Something went wrong
-on our end" page is reloaded automatically (after the same wait), up to 3 times. If eBay
-shows a sign-in or verification page, it pauses so you can deal with it in the browser
-window.
+on our end" page is reloaded automatically (after the same wait), up to 3 times. For
+anything it can't get past by itself (a sign-in or verification page, or a persistent error
+page) it pauses: deal with it in the browser window if needed and press Enter to reload,
+as often as it takes, or press Ctrl-C to stop.
 
 If a snapshot is interrupted, finish it with:
 
