@@ -4,8 +4,9 @@ from pathlib import Path
 import pytest
 
 from findspade.fetch import ERROR_PAGE_RETRIES, HumanPace, WrongLocationError, take_snapshot
+from findspade.item_page import TITLE
 from findspade.records import build_records
-from findspade.search_page import EbayErrorPage, UnexpectedPageError
+from findspade.search_page import SEARCH_PAGE_READY, EbayErrorPage, UnexpectedPageError
 from findspade.snapshot import Snapshot
 from findspade.terms import search_url
 
@@ -37,11 +38,13 @@ class FakeBrowser:
         self.item_html = fixture("us/items/257745509133/item.html")
         self.description_html = fixture("items/257745509133/description.html")
         self.requested: list[str] = []
+        self.waited_for: dict[str, str | None] = {}  # url -> CSS selector awaited
         self.failures: dict[str, int] = {}  # url -> times to return a verification page first
         self.errors: dict[str, int] = {}  # url -> times to return eBay's error page first
 
-    def get(self, url: str) -> str:
+    def get(self, url: str, wait_for: str | None = None) -> str:
         self.requested.append(url)
+        self.waited_for[url] = wait_for
         if self.errors.get(url, 0) > 0:
             self.errors[url] -= 1
             return ERROR_PAGE
@@ -83,6 +86,17 @@ def test_fetches_every_search_page_then_every_item_with_a_pause_before_each(tmp_
     assert snapshot.item_page("307111434811", "description") is not None
     assert len(build_records(snapshot)) == 13  # 5 on page 1, 8 on page 2
     assert pauses == len(browser.requested) == 2 + 13 * 2
+
+
+def test_waits_for_results_or_item_title_but_not_for_descriptions(tmp_path):
+    browser = FakeBrowser()
+
+    run(Snapshot(tmp_path), browser)
+
+    assert browser.waited_for[search_url("Antiquity", 1)] == SEARCH_PAGE_READY
+    assert browser.waited_for["https://www.ebay.com/itm/307111434811"] == TITLE
+    descriptions = [url for url in browser.requested if "ebaydesc" in url]
+    assert descriptions and all(browser.waited_for[url] is None for url in descriptions)
 
 
 def test_rerun_of_a_finished_snapshot_fetches_nothing(tmp_path):

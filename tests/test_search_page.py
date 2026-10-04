@@ -5,6 +5,7 @@ import pytest
 
 from findspade.item_page import parse_item_page
 from findspade.search_page import (
+    BrowserCheckPage,
     EbayErrorPage,
     NotLoggedInError,
     SearchResult,
@@ -96,6 +97,14 @@ def test_ebay_error_page_raises_its_own_error():
     with pytest.raises(EbayErrorPage):
         parse_search_page(html)
     with pytest.raises(EbayErrorPage):
+        parse_item_page(html)
+
+
+def test_ebay_browser_check_page_raises_its_own_error():
+    html = (FIXTURES.parent / "browser-check.html").read_text(encoding="utf-8")
+    with pytest.raises(BrowserCheckPage):
+        parse_search_page(html)
+    with pytest.raises(BrowserCheckPage):
         parse_item_page(html)
 
 

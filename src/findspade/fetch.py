@@ -25,7 +25,12 @@ from findspade.item_page import (
     ListingUnavailable,
     parse_item_page,
 )
-from findspade.search_page import EbayErrorPage, UnexpectedPageError, parse_search_page
+from findspade.search_page import (
+    SEARCH_PAGE_READY,
+    EbayErrorPage,
+    UnexpectedPageError,
+    parse_search_page,
+)
 from findspade.snapshot import Snapshot
 from findspade.terms import search_url
 
@@ -35,8 +40,8 @@ RECHECK_SECONDS = 3  # verbose: wait before re-reading an item page that failed 
 
 
 class Browser(Protocol):
-    def get(self, url: str) -> str:
-        """Load the URL and return the page's HTML."""
+    def get(self, url: str, wait_for: str | None = None) -> str:
+        """Load the URL and return its HTML, once the wait_for CSS selector matches."""
 
 
 class WrongLocationError(Exception):
@@ -125,7 +130,7 @@ class _Fetcher:
 
         for page_number in range(saved + 1, MAX_PAGES_PER_TERM + 1):
             url = search_url(term, page_number)
-            html, page = self._get(url, parse_search_page)
+            html, page = self._get(url, parse_search_page, wait_for=SEARCH_PAGE_READY)
             _check_us_location(page.ship_to)
             self.snapshot.save_search_page(term, page_number, url, html)
             item_ids += [r.item_id for r in page.results]
@@ -136,7 +141,7 @@ class _Fetcher:
 
     def fetch_item(self, item_id: str) -> None:
         url = f"https://www.ebay.com/itm/{item_id}"
-        html, item = self._get(url, lambda html: self._parse_item(item_id, html))
+        html, item = self._get(url, lambda html: self._parse_item(item_id, html), wait_for=TITLE)
         if item is None:
             # Saved anyway, as a record of what eBay showed and so a rerun skips it.
             self.snapshot.save_item_page(item_id, "item", url, html)
@@ -177,9 +182,14 @@ class _Fetcher:
         load = getattr(self.browser, "last_load", None)
         if load is None:
             return "loaded"
-        return f"HTTP {load.status} in {load.seconds} s from {load.final_url}"
+        via = f"via {load.loaded_url}, " if load.loaded_url != load.final_url else ""
+        ready = {None: "", True: ", content appeared", False: ", content NOT found in time"}
+        return (
+            f"HTTP {load.status} in {load.seconds} s, {via}from {load.final_url}"
+            + ready[load.ready]
+        )
 
-    def _get(self, url: str, parse: Callable):
+    def _get(self, url: str, parse: Callable, wait_for: str | None = None):
         """Load and parse a page, pausing before every attempt.
 
         eBay's error page is reloaded up to ERROR_PAGE_RETRIES times. Any other unexpected
@@ -189,7 +199,7 @@ class _Fetcher:
         asked_user = False
         while True:
             self.pause()
-            html = self.browser.get(url)
+            html = self.browser.get(url, wait_for=wait_for)
             try:
                 return html, parse(html)
             except EbayErrorPage:
