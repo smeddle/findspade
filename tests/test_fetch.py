@@ -57,7 +57,7 @@ class FakeBrowser:
         raise AssertionError(f"Unexpected URL {url}")
 
 
-def run(snapshot, browser, terms=("Antiquity",), on_blocked=None, log=None):
+def run(snapshot, browser, terms=("Antiquity",), on_blocked=None, log=None, verbose=False):
     pauses = []
     take_snapshot(
         list(terms),
@@ -66,6 +66,7 @@ def run(snapshot, browser, terms=("Antiquity",), on_blocked=None, log=None):
         pause=lambda: pauses.append(1),
         on_blocked=on_blocked or (lambda url, error: None),
         log=log or (lambda message: None),
+        verbose=verbose,
     )
     return len(pauses)
 
@@ -138,6 +139,42 @@ def test_user_gets_one_chance_to_clear_a_verification_page(tmp_path):
 
     assert blocked == [url]
     assert snapshot.item_page("307111434811", "item") == browser.item_html
+
+
+def test_failed_item_page_is_saved_for_diagnosis_and_verbose_logs_each_load(tmp_path):
+    snapshot = Snapshot(tmp_path)
+    browser = FakeBrowser()
+    browser.failures["https://www.ebay.com/itm/307111434811"] = 1
+    errors, messages = [], []
+
+    run(snapshot, browser, on_blocked=lambda url, e: errors.append(str(e)), log=messages.append,
+        verbose=True)  # fmt: skip
+
+    [error] = errors
+    assert "Page has no item title or number (page title None" in error
+    [saved] = (tmp_path / "debug").glob("307111434811-*.html")
+    assert saved.read_text() == VERIFY_PAGE
+    assert f"page saved to {saved}" in error
+    item_lines = [m for m in messages if m.startswith("  [307111434811]")]
+    assert item_lines[0] == "  [307111434811] fetching because it has no saved pages"
+    assert "title NO, item number NO" in item_lines[1]  # the verification page
+    assert "title yes, item number yes, description link yes" in item_lines[2]  # the retry
+    assert item_lines[3].startswith("  [307111434811] description: ")
+
+
+def test_verbose_explains_why_a_saved_item_is_fetched_again(tmp_path):
+    snapshot = Snapshot(tmp_path)
+    run(snapshot, FakeBrowser())
+    (tmp_path / "items/307111434811/description.html").unlink()
+    messages = []
+
+    run(snapshot, FakeBrowser(), log=messages.append, verbose=True)
+
+    assert any(
+        m.startswith("  [307111434811] fetching because its description isn't saved")
+        and "description link yes" in m
+        for m in messages
+    )
 
 
 def test_second_verification_page_stops_the_run_without_saving_it(tmp_path):

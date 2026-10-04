@@ -4,11 +4,22 @@ login and delivery location survive between runs.
 The profile directory holds the eBay login cookies, so keep it out of git.
 """
 
+import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
 SIGN_IN_URL = "https://signin.ebay.com/"
+
+
+@dataclass
+class PageLoad:
+    """What happened on the last page load, for --verbose diagnostics."""
+
+    status: int | None  # HTTP status of the main response
+    final_url: str  # after any redirects
+    seconds: float  # from starting the load until the HTML was read
 
 
 class PlaywrightBrowser:
@@ -25,6 +36,7 @@ class PlaywrightBrowser:
             self.profile_dir, headless=self.headless
         )
         self.page = self._context.pages[0] if self._context.pages else self._context.new_page()
+        self.last_load: PageLoad | None = None
         return self
 
     def __exit__(self, *exc_info) -> None:
@@ -32,7 +44,15 @@ class PlaywrightBrowser:
         self._playwright.stop()
 
     def get(self, url: str) -> str:
-        self.page.goto(url, wait_until="load")
+        start = time.monotonic()
+        response = self.page.goto(url, wait_until="load")
+        html = self.page.content()
+        status = response.status if response else None
+        self.last_load = PageLoad(status, self.page.url, round(time.monotonic() - start, 1))
+        return html
+
+    def html_now(self) -> str:
+        """The current page's HTML as it is now, without reloading."""
         return self.page.content()
 
 

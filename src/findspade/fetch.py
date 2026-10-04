@@ -11,15 +11,27 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 from typing import Protocol
 
-from findspade.item_page import ItemPage, ListingUnavailable, parse_item_page
+from bs4 import BeautifulSoup
+
+from findspade.item_page import (
+    DESCRIPTION_FRAME,
+    ITEM_NUMBER,
+    TITLE,
+    ItemPage,
+    ListingUnavailable,
+    parse_item_page,
+)
 from findspade.search_page import EbayErrorPage, UnexpectedPageError, parse_search_page
 from findspade.snapshot import Snapshot
 from findspade.terms import search_url
 
 MAX_PAGES_PER_TERM = 50  # a safety limit; eBay shows at most about 10,000 results
 ERROR_PAGE_RETRIES = 3  # reloads after eBay's "Something went wrong" page before giving up
+RECHECK_SECONDS = 3  # verbose: wait before re-reading an item page that failed to parse
 
 
 class Browser(Protocol):
@@ -61,8 +73,10 @@ def take_snapshot(
     pause: Callable[[], None],
     on_blocked: Callable[[str, Exception], None] = ask_user_to_unblock,
     log: Callable[[str], None] = print,
+    verbose: bool = False,
 ) -> None:
-    fetcher = _Fetcher(snapshot, browser, pause, on_blocked, log)
+    """With verbose, log the details of every item page load, to help diagnose failures."""
+    fetcher = _Fetcher(snapshot, browser, pause, on_blocked, log, verbose)
 
     item_ids: list[str] = []
     for term in _unique_ignoring_case(terms, log):
@@ -70,11 +84,12 @@ def take_snapshot(
             if item_id not in item_ids:
                 item_ids.append(item_id)
 
-    to_fetch = [i for i in item_ids if not _already_fetched(snapshot, i)]
-    if len(to_fetch) < len(item_ids):
-        log(f"{len(item_ids) - len(to_fetch)} of {len(item_ids)} items already saved")
-    for n, item_id in enumerate(to_fetch, start=1):
-        log(f"Item {n}/{len(to_fetch)}: {item_id}")
+    reasons = {i: reason for i in item_ids if (reason := _why_fetch(snapshot, i))}
+    if len(reasons) < len(item_ids):
+        log(f"{len(item_ids) - len(reasons)} of {len(item_ids)} items already saved")
+    for n, (item_id, reason) in enumerate(reasons.items(), start=1):
+        log(f"Item {n}/{len(reasons)}: {item_id}")
+        fetcher.vlog(item_id, f"fetching because {reason}")
         fetcher.fetch_item(item_id)
 
 
@@ -85,6 +100,11 @@ class _Fetcher:
     pause: Callable[[], None]
     on_blocked: Callable[[str, Exception], None]
     log: Callable[[str], None]
+    verbose: bool = False
+
+    def vlog(self, item_id: str, message: str) -> None:
+        if self.verbose:
+            self.log(f"  [{item_id}] {message}")
 
     def fetch_search(self, term: str) -> list[str]:
         """Save every results page for the term and return the item ids found.
@@ -116,7 +136,7 @@ class _Fetcher:
 
     def fetch_item(self, item_id: str) -> None:
         url = f"https://www.ebay.com/itm/{item_id}"
-        html, item = self._get(url, _parse_listing)
+        html, item = self._get(url, lambda html: self._parse_item(item_id, html))
         if item is None:
             # Saved anyway, as a record of what eBay showed and so a rerun skips it.
             self.snapshot.save_item_page(item_id, "item", url, html)
@@ -128,7 +148,36 @@ class _Fetcher:
             # Plain seller HTML, served by eBay without a login, so there is nothing to check.
             self.pause()
             description = self.browser.get(item.description_url)
+            self.vlog(item_id, f"description: {self._last_load()}, {len(description):,} chars")
             self.snapshot.save_item_page(item_id, "description", item.description_url, description)
+
+    def _parse_item(self, item_id: str, html: str) -> ItemPage | None:
+        """Parse a just-loaded item page, logging diagnostics and keeping pages that fail."""
+        self.vlog(item_id, f"item page: {self._last_load()}, {_item_page_parts(html)}")
+        try:
+            return _parse_listing(html)
+        except EbayErrorPage:
+            raise
+        except UnexpectedPageError as error:
+            path = self._save_failed_page(item_id, html)
+            if self.verbose and hasattr(self.browser, "html_now"):
+                time.sleep(RECHECK_SECONDS)
+                later = _item_page_parts(self.browser.html_now())
+                self.vlog(item_id, f"same page {RECHECK_SECONDS} s later, not reloaded: {later}")
+            raise type(error)(f"{error}; page saved to {path}") from error
+
+    def _save_failed_page(self, item_id: str, html: str) -> Path:
+        directory = self.snapshot.root / "debug"
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"{item_id}-{datetime.now():%H%M%S}.html"
+        path.write_text(html, encoding="utf-8")
+        return path
+
+    def _last_load(self) -> str:
+        load = getattr(self.browser, "last_load", None)
+        if load is None:
+            return "loaded"
+        return f"HTTP {load.status} in {load.seconds} s from {load.final_url}"
 
     def _get(self, url: str, parse: Callable):
         """Load and parse a page, pausing before every attempt.
@@ -163,12 +212,26 @@ def _parse_listing(html: str) -> ItemPage | None:
         return None
 
 
-def _already_fetched(snapshot: Snapshot, item_id: str) -> bool:
-    """True if an earlier run saved all of the item's pages."""
+def _why_fetch(snapshot: Snapshot, item_id: str) -> str | None:
+    """Why the item needs fetching, or None if an earlier run saved all of its pages."""
     if snapshot.item_page(item_id, "description") is not None:
-        return True
+        return None
     html = snapshot.item_page(item_id, "item")
-    return html is not None and _parse_listing(html) is None  # product pages have no description
+    if html is None:
+        return "it has no saved pages"
+    if _parse_listing(html) is None:
+        return None  # a catalogue product page, which has no description
+    return f"its description isn't saved (saved item page: {_item_page_parts(html)})"
+
+
+def _item_page_parts(html: str) -> str:
+    """Which of the parts the parser needs are in an item page, e.g. for diagnostics."""
+    soup = BeautifulSoup(html, "lxml")
+    parts = {"title": TITLE, "item number": ITEM_NUMBER, "description link": DESCRIPTION_FRAME}
+    found = ", ".join(
+        f"{name} {'yes' if soup.select_one(sel) else 'NO'}" for name, sel in parts.items()
+    )
+    return f"{len(html):,} chars, {found}"
 
 
 def _check_us_location(ship_to: str | None) -> None:

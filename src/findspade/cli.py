@@ -62,7 +62,7 @@ def cmd_resume(args: argparse.Namespace) -> None:
 def _fetch(snapshot: Snapshot, terms: list[str], args: argparse.Namespace) -> None:
     pace = HumanPace(min_delay=args.min_delay, max_delay=args.max_delay)
     with PlaywrightBrowser(args.profile, headless=args.headless) as browser:
-        take_snapshot(terms, snapshot, browser, pace)
+        take_snapshot(terms, snapshot, browser, pace, verbose=args.verbose)
     count = write_records(snapshot)
     print(f"Wrote {count} records to {snapshot.root / RECORDS_FILE}")
 
@@ -76,6 +76,9 @@ def _add_fetch_arguments(parser: argparse.ArgumentParser) -> None:
         "--max-delay", type=float, default=12.0, help="seconds between pages, at most"
     )
     parser.add_argument("--headless", action="store_true", help="hide the browser window")
+    parser.add_argument(
+        "--verbose", action="store_true", help="log details of each item page load (diagnostics)"
+    )
 
 
 def main(argv: list[str] | None = None) -> None:
