@@ -58,7 +58,7 @@ findspade snapshot --terms-file terms.txt
 This fetches every results page for each term, then each item's page and description,
 waiting 4–12 seconds between pages (`--min-delay`, `--max-delay`) with an occasional
 longer break, and finally writes `records.jsonl`. After each page loads it waits (up to
-20 seconds) for the results or item title to appear, so eBay's automatic "Checking your
+10 seconds) for the results or item title to appear, so eBay's automatic "Checking your
 browser" bot check can clear by itself. eBay's occasional "Something went wrong
 on our end" page is reloaded automatically (after the same wait), up to 3 times. If eBay
 shows a sign-in or verification page, it pauses so you can deal with it in the browser

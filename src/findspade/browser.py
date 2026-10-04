@@ -12,7 +12,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeout
 from playwright.sync_api import sync_playwright
 
 SIGN_IN_URL = "https://signin.ebay.com/"
-READY_TIMEOUT_SECONDS = 20  # how long to wait for the content, e.g. while a bot check runs
+READY_TIMEOUT_SECONDS = 10  # how long to wait for the content, e.g. while a bot check runs
 
 
 @dataclass
