@@ -28,6 +28,7 @@ def test_search_url_sets_keywords_and_keeps_filters():
     assert q["_salic"] == ["3"]
     assert q["LH_ItemCondition"] == ["3000"]
     assert q["_ipg"] == ["240"]
+    assert q["_stpos"] == ["08075"]  # a US ZIP, so shipping estimates are for a US buyer
 
 
 def test_search_url_adds_page_number_after_first_page():

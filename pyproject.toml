@@ -7,7 +7,7 @@ name = "findspade"
 version = "0.1.0"
 description = "Snapshot and analyse eBay sales of UK antiquities to US buyers."
 requires-python = ">=3.11"
-dependencies = ["beautifulsoup4", "lxml"]
+dependencies = ["beautifulsoup4", "lxml", "playwright"]
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]

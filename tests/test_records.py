@@ -83,6 +83,16 @@ def test_unparseable_item_page_falls_back_to_search_result(snapshot, capsys):
     assert "327366761616" in capsys.readouterr().err
 
 
+def test_catalogue_product_page_falls_back_to_search_result_quietly(snapshot, capsys):
+    product_page = fixture("items/358862393122/item.html")
+    snapshot.save_item_page("327366761616", "item", "https://e", product_page)
+
+    record = by_id(build_records(snapshot))["327366761616"]
+
+    assert record["location"] == "United Kingdom"
+    assert capsys.readouterr().err == ""
+
+
 def test_records_command_writes_jsonl(snapshot, capsys):
     main(["records", str(snapshot.root)])
 
