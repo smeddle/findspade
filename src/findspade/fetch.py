@@ -70,10 +70,11 @@ def take_snapshot(
             if item_id not in item_ids:
                 item_ids.append(item_id)
 
-    for n, item_id in enumerate(item_ids, start=1):
-        if _already_fetched(snapshot, item_id):
-            continue  # by an earlier, interrupted run
-        log(f"Item {n}/{len(item_ids)}: {item_id}")
+    to_fetch = [i for i in item_ids if not _already_fetched(snapshot, i)]
+    if len(to_fetch) < len(item_ids):
+        log(f"{len(item_ids) - len(to_fetch)} of {len(item_ids)} items already saved")
+    for n, item_id in enumerate(to_fetch, start=1):
+        log(f"Item {n}/{len(to_fetch)}: {item_id}")
         fetcher.fetch_item(item_id)
 
 
@@ -86,9 +87,23 @@ class _Fetcher:
     log: Callable[[str], None]
 
     def fetch_search(self, term: str) -> list[str]:
-        """Save every results page for the term and return the item ids found."""
+        """Save every results page for the term and return the item ids found.
+
+        Pages saved by an earlier run are reused rather than fetched again.
+        """
         item_ids = []
-        for page_number in range(1, MAX_PAGES_PER_TERM + 1):
+        saved = 0  # how many pages, from page 1 with no gaps, an earlier run saved
+        for page_number, html in self.snapshot.search_pages(term):
+            if page_number != saved + 1:
+                break  # a gap: fetch again from here
+            saved = page_number
+            page = parse_search_page(html)
+            item_ids += [r.item_id for r in page.results]
+            if not page.has_next_page:
+                self.log(f"{term!r}: using {saved} saved results page(s)")
+                return item_ids
+
+        for page_number in range(saved + 1, MAX_PAGES_PER_TERM + 1):
             url = search_url(term, page_number)
             html, page = self._get(url, parse_search_page)
             _check_us_location(page.ship_to)

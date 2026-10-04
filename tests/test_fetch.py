@@ -84,14 +84,47 @@ def test_fetches_every_search_page_then_every_item_with_a_pause_before_each(tmp_
     assert pauses == len(browser.requested) == 2 + 13 * 2
 
 
-def test_rerun_skips_items_already_fetched(tmp_path):
+def test_rerun_of_a_finished_snapshot_fetches_nothing(tmp_path):
     snapshot = Snapshot(tmp_path)
     run(snapshot, FakeBrowser())
 
     browser = FakeBrowser()
     run(snapshot, browser)
 
-    assert browser.requested == [search_url("Antiquity", 1), search_url("Antiquity", 2)]
+    assert browser.requested == []
+
+
+def test_rerun_uses_saved_results_and_continues_from_missing_or_incomplete_items(tmp_path):
+    snapshot = Snapshot(tmp_path)
+    first = FakeBrowser()
+    first.failures["https://www.ebay.com/itm/307111434811"] = 2  # 5th item: run stops here
+    with pytest.raises(UnexpectedPageError):
+        run(snapshot, first)
+    # Simulate an interruption between the 4th item's page and its description.
+    (tmp_path / "items/158320267063/description.html").unlink()
+
+    browser = FakeBrowser()
+    messages = []
+    run(snapshot, browser, log=messages.append)
+
+    assert not any("/sch/" in url for url in browser.requested)  # no search pages refetched
+    assert "https://www.ebay.com/itm/327366761616" not in browser.requested  # 1st item: done
+    assert "https://www.ebay.com/itm/158320267063" in browser.requested  # incomplete
+    assert "https://www.ebay.com/itm/307111434811" in browser.requested  # not reached
+    assert "3 of 13 items already saved" in messages
+    assert len(build_records(snapshot)) == 13
+
+
+def test_rerun_continues_an_unfinished_search_from_the_next_page(tmp_path):
+    snapshot = Snapshot(tmp_path)
+    page_1 = FakeBrowser().pages[search_url("Antiquity", 1)]
+    snapshot.save_search_page("Antiquity", 1, search_url("Antiquity", 1), page_1)
+
+    browser = FakeBrowser()
+    run(snapshot, browser)
+
+    searched = [url for url in browser.requested if "/sch/" in url]
+    assert searched == [search_url("Antiquity", 2)]
 
 
 def test_user_gets_one_chance_to_clear_a_verification_page(tmp_path):

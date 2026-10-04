@@ -29,6 +29,15 @@ def test_search_pages_are_kept_in_page_order_and_resaving_replaces(tmp_path):
     ]
 
 
+def test_terms_lists_the_saved_searches(tmp_path):
+    snapshot = Snapshot(tmp_path)
+    snapshot.save_search_page("roman coin", 1, "https://e/1", "<p></p>")
+    snapshot.save_search_page('"bronze age"', 1, "https://e/1", "<p></p>")
+
+    assert sorted(snapshot.terms()) == ['"bronze age"', "roman coin"]
+    assert snapshot.search_pages("no such term") == []
+
+
 def test_terms_differing_only_in_case_are_rejected(tmp_path):
     snapshot = Snapshot(tmp_path)
     snapshot.save_search_page("Roman coin", 1, "https://e/1", "<p></p>")

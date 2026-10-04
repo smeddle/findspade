@@ -60,8 +60,17 @@ waiting 4–12 seconds between pages (`--min-delay`, `--max-delay`) with an occa
 longer break, and finally writes `records.jsonl`. eBay's occasional "Something went wrong
 on our end" page is reloaded automatically (after the same wait), up to 3 times. If eBay
 shows a sign-in or verification page, it pauses so you can deal with it in the browser
-window. If interrupted, run the same
-command again: items already saved are skipped.
+window.
+
+If a snapshot is interrupted, finish it with:
+
+```sh
+findspade resume data/snapshots/2026-10-04
+```
+
+This uses the search terms saved in the snapshot and its saved results pages (fetching
+only the pages a search hadn't reached), then fetches only the items that are missing or
+incomplete. Running the original `snapshot` command again on the same day does the same.
 
 ### Snapshots and records
 
