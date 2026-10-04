@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from findspade.cli import main
-from findspade.records import build_records
+from findspade.records import ITEM_PAGE_STATUSES, build_records
 from findspade.snapshot import Snapshot
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -91,6 +91,24 @@ def test_catalogue_product_page_falls_back_to_search_result_quietly(snapshot, ca
 
     assert record["location"] == "United Kingdom"
     assert capsys.readouterr().err == ""
+
+
+def test_item_page_status_says_why_item_page_fields_are_or_are_not_filled(snapshot):
+    # On antiquity page 1: 307111434811 has saved pages, 327366761616 has none.
+    snapshot.save_item_page(
+        "147593971333", "item", "https://e", fixture("items/358862393122/item.html")
+    )
+    snapshot.save_item_page("196615667402", "item", "https://e", "<html>Please verify</html>")
+    snapshot.mark_missing("158320267063", "https://e")
+
+    statuses = {i: r["item_page_status"] for i, r in by_id(build_records(snapshot)).items()}
+
+    assert statuses["307111434811"] == "ok"
+    assert statuses["327366761616"] == "not_fetched"
+    assert statuses["147593971333"] == "product_page"
+    assert statuses["196615667402"] == "unreadable"
+    assert statuses["158320267063"] == "listing_missing"
+    assert set(statuses.values()) <= set(ITEM_PAGE_STATUSES)
 
 
 def test_records_command_writes_jsonl(snapshot, capsys):

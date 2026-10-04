@@ -95,7 +95,10 @@ findspade records data/snapshots/2026-10-03
 Each record combines the item's search result, item page and description: title, sold
 date, prices, condition, seller, location, shipping, category, item specifics, the full
 description text, any PAS / export licence / provenance mentions, and the search terms
-that found it. Records can be rebuilt from the raw pages at any time.
+that found it. `item_page_status` says whether the item-page fields could be filled in:
+`ok`, `listing_missing`, `product_page` (eBay showed a catalogue page instead of the
+listing), `not_fetched` or `unreadable`; otherwise those fields come from the search
+results or are empty. Records can be rebuilt from the raw pages at any time.
 
 ## Development
 
