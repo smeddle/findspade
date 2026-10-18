@@ -4,6 +4,8 @@ Where the search card and the item page both have a value, the item page's is us
 is more detailed (e.g. the town as well as the country). The search card supplies what
 the item page lacks: the sold date with its year, and the price in US dollars. Items
 whose pages weren't fetched, or couldn't be parsed, get a record from the search card alone.
+"item_fetch_status" is the HTTP status of the item page's latest fetch (e.g. 200, or 404 for
+a missing listing), or None if it hasn't been fetched.
 """
 
 import json
@@ -52,6 +54,7 @@ def _record(snapshot: Snapshot, result: SearchResult, search_terms: list[str]) -
         "item_id": result.item_id,
         "url": result.url,
         "search_terms": search_terms,
+        "item_fetch_status": snapshot.item_fetch_status(result.item_id),  # e.g. 200, 404
         "title": title,
         "subtitle": result.subtitle,
         "sold_date": result.sold_date.isoformat() if result.sold_date else None,

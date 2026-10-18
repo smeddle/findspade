@@ -65,6 +65,10 @@ anything it can't get past by itself (a sign-in or verification page, or a persi
 page) it pauses: deal with it in the browser window if needed and press Enter to reload,
 as often as it takes, or press Ctrl-C to stop.
 
+If an item page answers HTTP 404 (eBay no longer has the listing), the item gets a
+`MISSING` file in its directory instead of pages, and is skipped from then on. Delete the
+`MISSING` file to have `resume` try the item again.
+
 If a snapshot is interrupted, finish it with:
 
 ```sh
@@ -72,8 +76,10 @@ findspade resume data/snapshots/2026-10-04
 ```
 
 This uses the search terms saved in the snapshot and its saved results pages (fetching
-only the pages a search hadn't reached), then fetches only the items that are missing or
-incomplete. Running the original `snapshot` command again on the same day does the same.
+only the pages a search hadn't reached), then fetches only the items without an
+`item.html` or `MISSING` file. (An item's description is saved before its item page, so a
+saved item page means the item is complete.) Running the original `snapshot` command again
+on the same day does the same.
 
 Both commands take `--verbose`, which logs a line per item page load (HTTP status, time,
 final URL, and whether the title, item number and description link were found), and why
@@ -93,7 +99,9 @@ findspade records data/snapshots/2026-10-03
 Each record combines the item's search result, item page and description: title, sold
 date, prices, condition, seller, location, shipping, category, item specifics, the full
 description text, any PAS / export licence / provenance mentions, and the search terms
-that found it. Records can be rebuilt from the raw pages at any time.
+that found it. `item_fetch_status` is the HTTP status of the item page's latest fetch
+(e.g. 200, or 404 for a missing listing), or empty if it hasn't been fetched. Records can be
+rebuilt from the raw pages at any time.
 
 ## Development
 

@@ -3,7 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from findspade.fetch import ERROR_PAGE_RETRIES, HumanPace, WrongLocationError, take_snapshot
+from findspade.fetch import (
+    ERROR_PAGE_RETRIES,
+    HumanPace,
+    Response,
+    WrongLocationError,
+    take_snapshot,
+)
 from findspade.item_page import TITLE
 from findspade.records import build_records
 from findspade.search_page import SEARCH_PAGE_READY
@@ -39,12 +45,16 @@ class FakeBrowser:
         self.description_html = fixture("items/257745509133/description.html")
         self.requested: list[str] = []
         self.waited_for: dict[str, str | None] = {}  # url -> CSS selector awaited
+        self.statuses: dict[str, int] = {}  # url -> HTTP status, if not 200
         self.failures: dict[str, int] = {}  # url -> times to return a verification page first
         self.errors: dict[str, int] = {}  # url -> times to return eBay's error page first
 
-    def get(self, url: str, wait_for: str | None = None) -> str:
+    def get(self, url: str, wait_for: str | None = None) -> Response:
         self.requested.append(url)
         self.waited_for[url] = wait_for
+        return Response(self.statuses.get(url, 200), self._html(url))
+
+    def _html(self, url: str) -> str:
         if self.errors.get(url, 0) > 0:
             self.errors[url] -= 1
             return ERROR_PAGE
@@ -119,8 +129,8 @@ def test_rerun_uses_saved_results_and_continues_from_missing_or_incomplete_items
     first.failures["https://www.ebay.com/itm/307111434811"] = 1  # 5th item: user stops here
     with pytest.raises(KeyboardInterrupt):
         run(snapshot, first, on_blocked=interrupt)
-    # Simulate an interruption between the 4th item's page and its description.
-    (tmp_path / "items/158320267063/description.html").unlink()
+    # Simulate an interruption after the 4th item's description, before its item page.
+    (tmp_path / "items/158320267063/item.html").unlink()
 
     browser = FakeBrowser()
     messages = []
@@ -130,7 +140,7 @@ def test_rerun_uses_saved_results_and_continues_from_missing_or_incomplete_items
     assert "https://www.ebay.com/itm/327366761616" not in browser.requested  # 1st item: done
     assert "https://www.ebay.com/itm/158320267063" in browser.requested  # incomplete
     assert "https://www.ebay.com/itm/307111434811" in browser.requested  # not reached
-    assert "3 of 13 items already saved" in messages
+    assert "3 of 13 items already saved or missing" in messages
     assert len(build_records(snapshot)) == 13
 
 
@@ -174,25 +184,9 @@ def test_failed_item_page_is_saved_for_diagnosis_and_verbose_logs_each_load(tmp_
     assert saved.read_text() == VERIFY_PAGE
     assert f"page saved to {saved}" in error
     item_lines = [m for m in messages if m.startswith("  [307111434811]")]
-    assert item_lines[0] == "  [307111434811] fetching because it has no saved pages"
-    assert "title NO, item number NO" in item_lines[1]  # the verification page
-    assert "title yes, item number yes, description link yes" in item_lines[2]  # the retry
-    assert item_lines[3].startswith("  [307111434811] description: ")
-
-
-def test_verbose_explains_why_a_saved_item_is_fetched_again(tmp_path):
-    snapshot = Snapshot(tmp_path)
-    run(snapshot, FakeBrowser())
-    (tmp_path / "items/307111434811/description.html").unlink()
-    messages = []
-
-    run(snapshot, FakeBrowser(), log=messages.append, verbose=True)
-
-    assert any(
-        m.startswith("  [307111434811] fetching because its description isn't saved")
-        and "description link yes" in m
-        for m in messages
-    )
+    assert "title NO, item number NO" in item_lines[0]  # the verification page
+    assert "title yes, item number yes, description link yes" in item_lines[1]  # the retry
+    assert item_lines[2].startswith("  [307111434811] description: ")
 
 
 def test_user_is_asked_again_while_the_page_is_still_blocked(tmp_path):
@@ -262,6 +256,44 @@ def test_catalogue_product_page_is_saved_without_a_description_or_asking_the_use
     rerun = FakeBrowser()
     run(snapshot, rerun)
     assert url not in rerun.requested
+
+
+def test_item_answering_404_is_flagged_missing_and_skipped_without_asking(tmp_path):
+    snapshot = Snapshot(tmp_path)
+    browser = FakeBrowser()
+    url = "https://www.ebay.com/itm/307111434811"
+    browser.statuses[url] = 404
+    blocked, messages = [], []
+
+    run(snapshot, browser, on_blocked=lambda url, e: blocked.append(url), log=messages.append)
+
+    assert blocked == []
+    assert (tmp_path / "items/307111434811/MISSING").read_text().startswith(f"HTTP 404 for {url}")
+    assert snapshot.item_page("307111434811", "item") is None
+    assert not any("307111434811" in u for u in browser.requested if "ebaydesc" in u)
+    assert "Item 307111434811: eBay answered 404 (listing missing); marked and skipped" in messages
+    records = {r["item_id"]: r for r in build_records(snapshot)}
+    assert records["307111434811"]["item_fetch_status"] == 404
+    assert records["307111434811"]["title"].startswith("Roman Antiquity")  # from the search card
+    assert records["327366761616"]["item_fetch_status"] == 200
+
+    rerun = FakeBrowser()
+    run(snapshot, rerun)
+    assert url not in rerun.requested
+
+
+def test_deleting_missing_file_has_the_item_fetched_again(tmp_path):
+    snapshot = Snapshot(tmp_path)
+    first = FakeBrowser()
+    first.statuses["https://www.ebay.com/itm/307111434811"] = 404
+    run(snapshot, first)
+
+    (tmp_path / "items/307111434811/MISSING").unlink()
+    run(snapshot, FakeBrowser())  # the listing is back
+
+    assert not snapshot.is_missing("307111434811")
+    assert snapshot.item_page("307111434811", "item") is not None
+    assert snapshot.item_fetch_status("307111434811") == 200
 
 
 def test_refuses_to_run_unless_delivery_location_is_a_us_zip(tmp_path):
