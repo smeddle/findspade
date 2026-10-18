@@ -72,6 +72,7 @@ def test_item_without_saved_pages_uses_its_search_result(snapshot):
     assert record["shipping"] == "+$6.61 delivery in 2-4 days"
     assert record["price"] is None
     assert record["description"] is None
+    assert record["item_fetch_status"] is None
 
 
 def test_unparseable_item_page_falls_back_to_search_result(snapshot, capsys):

@@ -39,9 +39,19 @@ ERROR_PAGE_RETRIES = 3  # reloads after eBay's "Something went wrong" page befor
 RECHECK_SECONDS = 3  # verbose: wait before re-reading an item page that failed to parse
 
 
+@dataclass
+class Response:
+    status: int | None  # HTTP status of the page shown, if known
+    html: str
+
+
 class Browser(Protocol):
-    def get(self, url: str, wait_for: str | None = None) -> str:
-        """Load the URL and return its HTML, once the wait_for CSS selector matches."""
+    def get(self, url: str, wait_for: str | None = None) -> Response:
+        """Load the URL and return the page, once the wait_for CSS selector matches."""
+
+
+class PageNotFound(Exception):
+    """eBay answered HTTP 404, e.g. for an item whose listing no longer exists."""
 
 
 class WrongLocationError(Exception):
@@ -93,12 +103,11 @@ def take_snapshot(
             if item_id not in item_ids:
                 item_ids.append(item_id)
 
-    reasons = {i: reason for i in item_ids if (reason := _why_fetch(snapshot, i))}
-    if len(reasons) < len(item_ids):
-        log(f"{len(item_ids) - len(reasons)} of {len(item_ids)} items already saved")
-    for n, (item_id, reason) in enumerate(reasons.items(), start=1):
-        log(f"Item {n}/{len(reasons)}: {item_id}")
-        fetcher.vlog(item_id, f"fetching because {reason}")
+    to_fetch = [i for i in item_ids if not _already_fetched(snapshot, i)]
+    if len(to_fetch) < len(item_ids):
+        log(f"{len(item_ids) - len(to_fetch)} of {len(item_ids)} items already saved or missing")
+    for n, item_id in enumerate(to_fetch, start=1):
+        log(f"Item {n}/{len(to_fetch)}: {item_id}")
         fetcher.fetch_item(item_id)
 
 
@@ -134,9 +143,9 @@ class _Fetcher:
 
         for page_number in range(saved + 1, MAX_PAGES_PER_TERM + 1):
             url = search_url(term, page_number)
-            html, page = self._get(url, parse_search_page, wait_for=SEARCH_PAGE_READY)
+            response, page = self._get(url, parse_search_page, wait_for=SEARCH_PAGE_READY)
             _check_us_location(page.ship_to)
-            self.snapshot.save_search_page(term, page_number, url, html)
+            self.snapshot.save_search_page(term, page_number, url, response.html)
             item_ids += [r.item_id for r in page.results]
             self.log(f"{term!r} page {page_number}: {len(page.results)} results")
             if not page.has_next_page:
@@ -145,20 +154,28 @@ class _Fetcher:
 
     def fetch_item(self, item_id: str) -> None:
         url = f"https://www.ebay.com/itm/{item_id}"
-        html, item = self._get(url, lambda html: self._parse_item(item_id, html), wait_for=TITLE)
+        try:
+            response, item = self._get(url, lambda h: self._parse_item(item_id, h), wait_for=TITLE)
+        except PageNotFound:
+            self.snapshot.mark_missing(item_id, url, status=404)
+            self.log(f"Item {item_id}: eBay answered 404 (listing missing); marked and skipped")
+            return
         if item is None:
             # Saved anyway, as a record of what eBay showed and so a rerun skips it.
-            self.snapshot.save_item_page(item_id, "item", url, html)
+            self.snapshot.save_item_page(item_id, "item", url, response.html, response.status)
             self.log(f"Item {item_id}: eBay showed a catalogue product page, not the listing")
             return
         _check_us_location(_delivery_destination(item.delivery))
-        self.snapshot.save_item_page(item_id, "item", url, html)
         if item.description_url:
             # Plain seller HTML, served by eBay without a login, so there is nothing to check.
             self.pause()
             description = self.browser.get(item.description_url)
-            self.vlog(item_id, f"description: {self._last_load()}, {len(description):,} chars")
-            self.snapshot.save_item_page(item_id, "description", item.description_url, description)
+            self.vlog(item_id, f"description: {self._last_load()}, {len(description.html):,} chars")
+            self.snapshot.save_item_page(
+                item_id, "description", item.description_url, description.html, description.status
+            )
+        # Saved last, so a saved item page means the item is complete (see _already_fetched).
+        self.snapshot.save_item_page(item_id, "item", url, response.html, response.status)
 
     def _parse_item(self, item_id: str, html: str) -> ItemPage | None:
         """Parse a just-loaded item page, logging diagnostics and keeping pages that fail."""
@@ -194,18 +211,21 @@ class _Fetcher:
         )
 
     def _get(self, url: str, parse: Callable, wait_for: str | None = None):
-        """Load and parse a page, pausing before every attempt.
+        """Load and parse a page, pausing before every attempt; return (response, parsed).
 
-        eBay's error page is reloaded up to ERROR_PAGE_RETRIES times by itself. Any page that
-        is still wrong after that (verification, sign-in, a persistent error) is handed to
-        the user, and reloaded each time they say it's fixed, until it parses.
+        HTTP 404 raises PageNotFound. eBay's error page is reloaded up to ERROR_PAGE_RETRIES
+        times by itself. Any page that is still wrong after that (verification, sign-in, a
+        persistent error) is handed to the user, and reloaded each time they say it's fixed,
+        until it parses.
         """
         retries = 0
         while True:
             self.pause()
-            html = self.browser.get(url, wait_for=wait_for)
+            response = self.browser.get(url, wait_for=wait_for)
+            if response.status == 404:
+                raise PageNotFound(url)
             try:
-                return html, parse(html)
+                return response, parse(response.html)
             except EbayErrorPage as error:
                 if retries < ERROR_PAGE_RETRIES:
                     retries += 1
@@ -224,16 +244,10 @@ def _parse_listing(html: str) -> ItemPage | None:
         return None
 
 
-def _why_fetch(snapshot: Snapshot, item_id: str) -> str | None:
-    """Why the item needs fetching, or None if an earlier run saved all of its pages."""
-    if snapshot.item_page(item_id, "description") is not None:
-        return None
-    html = snapshot.item_page(item_id, "item")
-    if html is None:
-        return "it has no saved pages"
-    if _parse_listing(html) is None:
-        return None  # a catalogue product page, which has no description
-    return f"its description isn't saved (saved item page: {_item_page_parts(html)})"
+def _already_fetched(snapshot: Snapshot, item_id: str) -> bool:
+    """True if an earlier run finished the item: it has a MISSING file, or a saved item page,
+    which is saved last (after the description), so it means the item is complete."""
+    return snapshot.is_missing(item_id) or snapshot.item_page(item_id, "item") is not None
 
 
 def _item_page_parts(html: str) -> str:

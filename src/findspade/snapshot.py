@@ -4,9 +4,12 @@ Layout of one snapshot (one directory per date, e.g. data/snapshots/2026-10-03):
 
     searches/<term slug>/manifest.json   term, and the URL and fetch time of each page
     searches/<term slug>/page-001.html
-    items/<item id>/manifest.json        URL and fetch time of each page
+    items/<item id>/manifest.json        URL, HTTP status and fetch time of each page, and
+                                         item_fetch_status: the latest item page's status
     items/<item id>/item.html            the sold item page (which is the original listing)
     items/<item id>/description.html     the description, loaded separately by eBay
+    items/<item id>/MISSING              instead of the pages, if the item page was a 404;
+                                         delete it to have the item fetched again
     records.jsonl                        written by records.write_records
 
 Items are stored once per snapshot, however many search terms find them.
@@ -19,6 +22,7 @@ from pathlib import Path
 from findspade.terms import slugify
 
 ITEM_PAGE_KINDS = ("item", "description")
+MISSING_FILE = "MISSING"
 
 
 class Snapshot:
@@ -47,7 +51,13 @@ class Snapshot:
         _write_manifest(directory, manifest)
 
     def save_item_page(
-        self, item_id: str, kind: str, url: str, html: str, fetched_at: str | None = None
+        self,
+        item_id: str,
+        kind: str,
+        url: str,
+        html: str,
+        status: int | None = None,
+        fetched_at: str | None = None,
     ) -> None:
         directory = self._item_directory(item_id, kind)
         directory.mkdir(parents=True, exist_ok=True)
@@ -55,8 +65,31 @@ class Snapshot:
         filename = f"{kind}.html"
         (directory / filename).write_text(html, encoding="utf-8")
 
-        manifest["pages"][kind] = {"file": filename, "url": url, "fetched_at": fetched_at or _now()}
+        fetched_at = fetched_at or _now()
+        manifest["pages"][kind] = {
+            "file": filename, "url": url, "status": status, "fetched_at": fetched_at,
+        }  # fmt: skip
+        if kind == "item":
+            manifest["item_fetch_status"] = status
         _write_manifest(directory, manifest)
+
+    def mark_missing(self, item_id: str, url: str, status: int) -> None:
+        """Record that the item page couldn't be had (e.g. HTTP 404), so it's skipped."""
+        directory = self._item_directory(item_id, "item")
+        directory.mkdir(parents=True, exist_ok=True)
+        text = f"HTTP {status} for {url} at {_now()}\n"
+        (directory / MISSING_FILE).write_text(text, encoding="utf-8")
+        manifest = _read_manifest(directory) or {"item_id": item_id, "pages": {}}
+        manifest["item_fetch_status"] = status
+        _write_manifest(directory, manifest)
+
+    def is_missing(self, item_id: str) -> bool:
+        return (self._item_directory(item_id, "item") / MISSING_FILE).exists()
+
+    def item_fetch_status(self, item_id: str) -> int | None:
+        """HTTP status of the latest fetch of the item page (e.g. 200, 404), if fetched."""
+        manifest = _read_manifest(self._item_directory(item_id, "item"))
+        return manifest.get("item_fetch_status") if manifest else None
 
     def search_pages(self, term: str) -> list[tuple[int, str]]:
         """A term's saved results pages as (page number, HTML), in page order."""
